@@ -67,9 +67,9 @@ A process container (e.g., Bun) that:
 1. **Only VignetteHost may call `Vignette.init()` and `Vignette.shutdown()`.**
 2. **Vignette never sees the system envelope** (`INIT/READY/ERROR/SHUTDOWN`).
 3. **Transport never parses envelopes.**
-4. **Inner payload is opaque to the framework.**
-   - Host and VC **must not decode/inspect inner payload** (whether JSON, MessagePack, binary, etc).
-   - They only forward bytes.
+4. **Inner payload is opaque by default.**
+   - APP payloads are always opaque and forwarded unchanged.
+   - INIT payload may optionally include host bootstrap hints (`vignetteType`, `vignetteUrl`, `initPayload`) when dynamic vignette selection is enabled.
 
 ---
 
@@ -99,7 +99,10 @@ export interface Vignette {
 }
 ```
 
-> Note: `initPayload` is the **inner init payload** (opaque) carried inside the `INIT` system message.
+> Note: `initPayload` is carried inside the `INIT` system message. In dynamic-loading mode it may be a JSON object:
+> - `vignetteType: "js" | "wasm"`
+> - `vignetteUrl: string`
+> - `initPayload: any` (app-owned init payload forwarded to `vignette.init(...)`)
 
 ### 3.2 Transport interface (bytes only)
 ```ts
@@ -189,7 +192,7 @@ Optional:
 ### 5.2 Meaning and ownership
 - `INIT` means: **request host to create/initialize a Vignette instance** using the inner `initPayload`.
 - `READY` means: host readiness signal with a structured payload:
-  - `{ ready: boolean, vignetteType: "js" | "wasm" | "native" }`
+  - `{ ready: boolean, vignetteType: "js" | "wasm" }`
   - `ready=true` indicates host initialized and ready for app messages
   - `ready=false` indicates currently not ready (e.g. reconnect/recovery path)
 - `ERROR` means: failure in host init, vignette init, vignette handling, or transport failures.
@@ -237,8 +240,9 @@ Rules:
 3. VC: `transport.open()`.
 4. VC -> Host: send **System(INIT, initPayload)** over transport.
 5. Worker Host receives INIT:
-   - create vignette instance (via factory)
-   - call `vignette.init(initPayload)`
+   - resolve vignette selection from INIT payload (or worker defaults)
+   - create vignette instance
+   - call `vignette.init(resolvedInitPayload)`
 6. On success: Host -> VC: send **System(READY, readyPayload?)**.
 7. VC receives READY:
    - transitions based on payload `ready`
@@ -267,7 +271,7 @@ Same as above, but transport is typically `ReconnectingWebSocketTransport` and H
 2. UI calls `vc.connect(initPayload)`.
 3. VC opens WS.
 4. VC sends **System(INIT, initPayload)**.
-5. Server Host initializes vignette and calls `vignette.init(initPayload)`.
+5. Server Host resolves vignette selection from INIT payload (or server defaults), then calls `vignette.init(resolvedInitPayload)`.
 6. Server Host sends **System(READY, ...)**.
 7. VC fires `onReady(true|false)`.
 8. APP messages flow as opaque bytes in both directions.
@@ -357,7 +361,15 @@ vc.onMessage((payload) => {
 
 vc.onError((err) => console.error("vignette error:", err));
 
-await vc.connect(new TextEncoder().encode(JSON.stringify({ userId: "rob" })));
+await vc.connect(
+  new TextEncoder().encode(
+    JSON.stringify({
+      vignetteType: "js",
+      vignetteUrl: new URL("./vignettes/echo-js/echo-vignette.ts", import.meta.url).href,
+      initPayload: { userId: "rob" },
+    }),
+  ),
+);
 ```
 
 ### 9.2 Remote (WS)
@@ -372,7 +384,15 @@ vc.onReady((ready) => {
   console.log("ready:", ready);
 });
 
-await vc.connect(new TextEncoder().encode(JSON.stringify({ userId: "rob" })));
+await vc.connect(
+  new TextEncoder().encode(
+    JSON.stringify({
+      vignetteType: "js",
+      vignetteUrl: new URL("./vignettes/echo-js/echo-vignette.ts", import.meta.url).href,
+      initPayload: { userId: "rob" },
+    }),
+  ),
+);
 ```
 
 ---
@@ -470,7 +490,7 @@ Generate a minimal TS project structure:
 
 **Acceptance criteria**
 - VC `connect(initPayload)` sends `INIT` and awaits `READY`.
-- Host calls `vignette.init(initPayload)` only after receiving INIT.
+- Host calls `vignette.init(resolvedInitPayload)` only after receiving INIT.
 - Inner payload is never decoded in framework.
 - Host errors become `ERROR` system messages.
 - Local mode uses WorkerTransport; remote may use WebSocketTransport or ReconnectingWebSocketTransport.
@@ -514,7 +534,8 @@ export interface Vignette {
 ```
 
 Rules:
-- `initPayload` and `payload` are **inner payload** bytes and MUST be treated as opaque by the framework.
+- `payload` (APP) is always opaque and forwarded unchanged by the framework.
+- `initPayload` is opaque unless dynamic INIT selection is enabled.
 - The JS vignette may decode/encode its *own* inner protocol (JSON/MsgPack/etc) internally, but the framework does not.
 
 ### 12.2 Module export shapes (choose ONE)
@@ -566,7 +587,7 @@ When Host receives:
 
 - **System(INIT, initPayload)**:
   - create vignette
-  - `await vignette.init(initPayload)`
+  - `await vignette.init(resolvedInitPayload)`
   - send **System(READY)** on success, **System(ERROR)** on failure
 
 - **APP(payload)**:

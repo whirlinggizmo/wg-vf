@@ -1,10 +1,9 @@
 import { WorkerVignetteHost } from './hosts/WorkerVignetteHost';
-import { isWorkerVignetteType, type WorkerVignetteType } from './VignetteTypes';
-import { createWasmInstance, type WasmVignetteInstance } from './WasmVignette';
+import { isVignetteType, type VignetteType } from './VignetteTypes';
 
 type WorkerConfigMessage = {
   type: 'vf-config';
-  vignetteType: WorkerVignetteType;
+  vignetteType: VignetteType;
   vignetteUrl: string;
 };
 
@@ -18,34 +17,12 @@ function isWorkerConfigMessage(msg: unknown): msg is WorkerConfigMessage {
   const candidate = msg as Partial<WorkerConfigMessage>;
   return (
     candidate.type === 'vf-config' &&
-    isWorkerVignetteType(candidate.vignetteType) &&
+    isVignetteType(candidate.vignetteType) &&
     typeof candidate.vignetteUrl === 'string'
   );
 }
 
 function createHost(msg: WorkerConfigMessage): WorkerVignetteHost {
-  if (msg.vignetteType === 'wasm') {
-    return new WorkerVignetteHost({
-      vignetteType: msg.vignetteType,
-      vignetteFactory: async () => {
-        if (typeof WorkerGlobalScope === 'undefined' && typeof self !== 'undefined') {
-          (globalThis as Record<string, unknown>).WorkerGlobalScope = class WorkerGlobalScopeShim {};
-        }
-
-        const moduleFactory = (await import(/* @vite-ignore */ msg.vignetteUrl)).default as (
-          opts?: {
-            locateFile?: (path: string) => string;
-          },
-        ) => Promise<WasmVignetteInstance>;
-        const wasmDirUrl = new URL('./', msg.vignetteUrl).href;
-        const wasmModule = await moduleFactory({
-          locateFile: (path: string) => new URL(path, wasmDirUrl).href,
-        });
-        return createWasmInstance(wasmModule);
-      },
-    });
-  }
-
   return new WorkerVignetteHost({
     vignetteType: msg.vignetteType,
     vignetteModuleUrl: msg.vignetteUrl,

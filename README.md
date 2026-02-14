@@ -62,7 +62,6 @@ WASM vignette module.
 
 Input staging is supported via either:
 
-- `malloc/free`
 - `vf_mem_alloc/vf_mem_free`
 - or `vf_inbox_staging_offset/vf_inbox_staging_capacity`
 
@@ -74,4 +73,18 @@ worker.postMessage({
   vignetteType: 'wasm',
   vignetteUrl: new URL('./vignettes/echo-wasm/out/echo-vignette_wasm.js', import.meta.url).href,
 });
+```
+
+Both remote and worker modes can also provide per-session vignette selection in the `INIT` payload:
+
+```ts
+await vc.connect(
+  new TextEncoder().encode(
+    JSON.stringify({
+      vignetteType: 'js',
+      vignetteUrl: new URL('./vignettes/echo-js/echo-vignette.ts', import.meta.url).href,
+      initPayload: { userId: 'rob' },
+    }),
+  ),
+);
 ```

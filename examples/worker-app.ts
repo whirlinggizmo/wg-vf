@@ -1,8 +1,8 @@
-import { VignetteClientImpl, WorkerTransport, type WorkerVignetteType } from '../src';
+import { VignetteClientImpl, WorkerTransport, type VignetteType } from '../src';
 
 // Choose which vignette implementation the worker should host.
 
-const vignetteType: WorkerVignetteType = 'wasm';
+const vignetteType: VignetteType = 'wasm';
 // JS vignette module:
 //const vignetteUrl = new URL('./vignettes/echo-js/echo-vignette.ts', import.meta.url).href;
 
@@ -45,6 +45,14 @@ vc.onError((err) => {
 });
 
 // Initiates INIT -> READY handshake.
-await vc.connect(new TextEncoder().encode(JSON.stringify({ userId: 'Bob' })));
+await vc.connect(
+  new TextEncoder().encode(
+    JSON.stringify({
+      vignetteType: 'wasm',
+      vignetteUrl: new URL('./vignettes/echo-wasm/out/echo-vignette_wasm.js', import.meta.url).href,
+      initPayload: { userId: 'Bob' },
+    }),
+  ),
+);
 
 // Connection established; continue to watch onReady for readiness changes.

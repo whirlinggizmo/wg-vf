@@ -30,4 +30,12 @@ vc.onMessage((_payload) => {
 });
 
 // Initiates INIT -> READY handshake (and reconnection re-init is automatic).
-await vc.connect(new TextEncoder().encode(JSON.stringify({ userId: 'rob' })));
+await vc.connect(
+  new TextEncoder().encode(
+    JSON.stringify({
+      vignetteType: 'wasm',
+      vignetteUrl: new URL('./vignettes/echo-wasm/out/echo-vignette_wasm.js', import.meta.url).href,
+      initPayload: { userId: 'Bob' },
+    }),
+  ),
+);

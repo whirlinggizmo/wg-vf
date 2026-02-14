@@ -1,8 +1,8 @@
 export type { Vignette } from './Vignette';
 export type { VignetteHost } from './VignetteHost';
 export type { VignetteClient } from './VignetteClient';
-export type { VignetteType, WorkerVignetteType, RemoteVignetteType } from './VignetteTypes';
-export { isWorkerVignetteType, isRemoteVignetteType } from './VignetteTypes';
+export type { VignetteType} from './VignetteTypes';
+export { isVignetteType } from './VignetteTypes';
 
 export { VignetteClientImpl } from './VignetteClient';
 

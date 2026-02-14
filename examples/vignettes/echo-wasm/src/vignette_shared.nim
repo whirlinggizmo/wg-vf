@@ -188,17 +188,6 @@ else:
       return onMessageCb(data)
     0'u32
 
-# Legacy exports.
-proc init*(inPtr, inLen: uint32): uint32 {.exportc, cdecl.} = vf_init(inPtr, inLen)
-proc handleMessage*(inPtr, inLen: uint32): uint32 {.exportc, cdecl.} = vf_handle_message(inPtr, inLen)
-proc setPostMessageCallback*(cb: uint32): uint32 {.exportc, cdecl.} =
-  discard cb
-  0'u32
-proc mem_log_memory_usage*(): uint32 {.exportc, cdecl.} = 0'u32
-proc greet*(): uint32 {.exportc, cdecl.} =
-  emitText("hello from vignette_shared")
-  0'u32
-
 when defined(js):
   {.emit: """
 export function createVignette() {

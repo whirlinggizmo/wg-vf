@@ -1,4 +1,4 @@
-import { isRemoteVignetteType, type VignetteType } from '../VignetteTypes';
+import { type VignetteType, isVignetteType } from '../VignetteTypes';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -44,7 +44,7 @@ export function decodeReadyPayload(payload: Uint8Array): ReadyPayload | null {
     return null;
   }
 
-  if (!isRemoteVignetteType(candidate.vignetteType)) {
+  if (!isVignetteType(candidate.vignetteType)) {
     return null;
   }
 

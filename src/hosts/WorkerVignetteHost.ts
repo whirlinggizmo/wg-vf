@@ -1,6 +1,7 @@
 import type { Vignette } from '../Vignette';
 import type { VignetteHost } from '../VignetteHost';
-import type { WorkerVignetteType } from '../VignetteTypes';
+import { isVignetteType, type VignetteType } from '../VignetteTypes';
+import { createWasmInstance, type WasmVignetteInstance } from '../WasmVignette';
 import { decodeEnvelope } from '../envelope/decode';
 import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
 import { encodeErrorPayload, encodeReadyPayload } from '../envelope/systemPayloads';
@@ -11,15 +12,15 @@ type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
 interface WorkerVignetteHostOptions {
   vignetteFactory?: () => Vignette | Promise<Vignette>;
   vignetteModuleUrl?: string;
-  vignetteType?: WorkerVignetteType;
+  vignetteType?: VignetteType;
   fixedStepUs?: number;
   maxSubsteps?: number;
 }
 
 export class WorkerVignetteHost implements VignetteHost {
   private readonly vignetteFactory?: () => Vignette | Promise<Vignette>;
-  private readonly vignetteModuleUrl?: string;
-  private readonly vignetteType: WorkerVignetteType;
+  private readonly defaultVignetteUrl?: string;
+  private readonly defaultVignetteType: VignetteType;
   private readonly fixedStepUs: number;
   private readonly maxSubsteps: number;
   private sendBytes: ((bytes: Uint8Array) => void) | null = null;
@@ -30,11 +31,13 @@ export class WorkerVignetteHost implements VignetteHost {
   private stepIndex = 0;
   private accUs = 0;
   private lastUs = 0;
+  private currentVignetteType: VignetteType;
 
   constructor(options: WorkerVignetteHostOptions) {
     this.vignetteFactory = options.vignetteFactory;
-    this.vignetteModuleUrl = options.vignetteModuleUrl;
-    this.vignetteType = options.vignetteType ?? 'js';
+    this.defaultVignetteUrl = options.vignetteModuleUrl;
+    this.defaultVignetteType = options.vignetteType ?? 'js';
+    this.currentVignetteType = this.defaultVignetteType;
     this.fixedStepUs = (options.fixedStepUs ?? 16_666) >>> 0;
     this.maxSubsteps = (options.maxSubsteps ?? 4) >>> 0;
   }
@@ -61,8 +64,10 @@ export class WorkerVignetteHost implements VignetteHost {
     }
 
     this.state = 'INITING';
-    this.vignette = await this.instantiateVignette();
-    await this.vignette.init(initPayload);
+    const resolved = this.resolveInitPayload(initPayload);
+    this.currentVignetteType = resolved.vignetteType;
+    this.vignette = await this.instantiateVignette(resolved.vignetteType, resolved.vignetteUrl);
+    await this.vignette.init(resolved.vignetteInitPayload);
     this.state = 'READY';
     this.startTickLoop();
     this.drainOutbox();
@@ -176,7 +181,7 @@ export class WorkerVignetteHost implements VignetteHost {
   }
 
   private createReadyPayload(): Uint8Array {
-    return encodeReadyPayload({ ready: true, vignetteType: this.vignetteType });
+    return encodeReadyPayload({ ready: true, vignetteType: this.currentVignetteType });
   }
 
   private async handleHostError(err: unknown): Promise<void> {
@@ -189,16 +194,36 @@ export class WorkerVignetteHost implements VignetteHost {
     return ((performance.now() * 1000) >>> 0);
   }
 
-  private async instantiateVignette(): Promise<Vignette> {
+  private async instantiateVignette(vignetteType: VignetteType, vignetteUrl?: string): Promise<Vignette> {
     if (this.vignetteFactory) {
       return await this.vignetteFactory();
     }
 
-    if (!this.vignetteModuleUrl) {
+    if (!vignetteUrl) {
       throw new Error('No vignetteFactory or vignetteModuleUrl provided');
     }
 
-    const mod = await import(/* @vite-ignore */ this.vignetteModuleUrl);
+    if (vignetteType === 'wasm') {
+      if (typeof WorkerGlobalScope === 'undefined' && typeof self !== 'undefined') {
+        (globalThis as Record<string, unknown>).WorkerGlobalScope = class WorkerGlobalScopeShim {};
+      }
+
+      const moduleFactory = (await import(/* @vite-ignore */ vignetteUrl)).default as (opts?: {
+        locateFile?: (path: string) => string;
+      }) => Promise<WasmVignetteInstance>;
+
+      if (typeof moduleFactory !== 'function') {
+        throw new Error('WASM vignette module must default-export an Emscripten module factory');
+      }
+
+      const wasmDirUrl = new URL('./', vignetteUrl).href;
+      const wasmModule = await moduleFactory({
+        locateFile: (path: string) => new URL(path, wasmDirUrl).href,
+      });
+      return createWasmInstance(wasmModule);
+    }
+
+    const mod = await import(/* @vite-ignore */ vignetteUrl);
 
     if (typeof mod.createVignette === 'function') {
       return await mod.createVignette();
@@ -209,5 +234,42 @@ export class WorkerVignetteHost implements VignetteHost {
     }
 
     throw new Error('Vignette module must export createVignette() or a default class');
+  }
+
+  private resolveInitPayload(initPayload: Uint8Array): {
+    vignetteType: VignetteType;
+    vignetteUrl?: string;
+    vignetteInitPayload: Uint8Array;
+  } {
+    const fallback = {
+      vignetteType: this.defaultVignetteType,
+      vignetteUrl: this.defaultVignetteUrl,
+      vignetteInitPayload: initPayload,
+    };
+
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(initPayload)) as {
+        vignetteType?: unknown;
+        vignetteUrl?: unknown;
+        initPayload?: unknown;
+      };
+
+      const vignetteType = isVignetteType(parsed?.vignetteType)
+        ? parsed.vignetteType
+        : this.defaultVignetteType;
+      const vignetteUrl = typeof parsed?.vignetteUrl === 'string' ? parsed.vignetteUrl : this.defaultVignetteUrl;
+      const vignetteInitPayload =
+        parsed && Object.prototype.hasOwnProperty.call(parsed, 'initPayload')
+          ? new TextEncoder().encode(JSON.stringify(parsed.initPayload))
+          : initPayload;
+
+      return {
+        vignetteType,
+        vignetteUrl,
+        vignetteInitPayload,
+      };
+    } catch {
+      return fallback;
+    }
   }
 }

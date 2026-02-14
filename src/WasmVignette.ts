@@ -12,8 +12,6 @@ interface WasmCallExports {
   vf_outbox_capacity?: WasmExportFn;
   vf_inbox_staging_offset?: WasmExportFn;
   vf_inbox_staging_capacity?: WasmExportFn;
-  malloc?: WasmExportFn;
-  free?: WasmExportFn;
   vf_mem_alloc?: WasmExportFn;
   vf_mem_free?: WasmExportFn;
 }
@@ -36,8 +34,6 @@ export interface WasmVignetteInstance {
   _vf_outbox_capacity?: WasmExportFn;
   _vf_inbox_staging_offset?: WasmExportFn;
   _vf_inbox_staging_capacity?: WasmExportFn;
-  _malloc?: WasmExportFn;
-  _free?: WasmExportFn;
   _vf_mem_alloc?: WasmExportFn;
   _vf_mem_free?: WasmExportFn;
 }
@@ -166,18 +162,6 @@ class WasmVignetteImpl implements Vignette {
   }
 
   private resolveAlloc(): { alloc: (size: number) => number; free?: (ptr: number) => void } | null {
-    if (typeof this.exports.malloc === 'function') {
-      return {
-        alloc: (size: number) => this.exports.malloc!(size >>> 0) >>> 0,
-        free:
-          typeof this.exports.free === 'function'
-            ? (ptr: number) => {
-                this.exports.free!(ptr >>> 0);
-              }
-            : undefined,
-      };
-    }
-
     if (typeof this.exports.vf_mem_alloc === 'function') {
       return {
         alloc: (size: number) => this.exports.vf_mem_alloc!(size >>> 0) >>> 0,
@@ -267,8 +251,6 @@ export function createWasmInstance(
     vf_outbox_capacity: module._vf_outbox_capacity,
     vf_inbox_staging_offset: module._vf_inbox_staging_offset,
     vf_inbox_staging_capacity: module._vf_inbox_staging_capacity,
-    malloc: module._malloc,
-    free: module._free,
     vf_mem_alloc: module._vf_mem_alloc,
     vf_mem_free: module._vf_mem_free,
   };
