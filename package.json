@@ -1,0 +1,33 @@
+{
+  "name": "wg-vf",
+  "version": "0.1.0",
+  "description": "Whirling Gizmo Vignette Framework",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "check": "tsc --noEmit -p tsconfig.build.json",
+    "dev:worker": "bun run example:worker:js",
+    "example:worker:js": "bun run --watch examples/worker-app.ts",
+    "dev:remote": "bun run --parallel example:server:remote example:app:remote",
+    "example:app:remote": "bun run --watch examples/remote-app.ts",
+    "example:server:remote": "bun run --watch examples/remote-server.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "typescript": "^5.8.2"
+  }
+}
