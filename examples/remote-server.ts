@@ -1,6 +1,7 @@
 import { RemoteVignetteHost, isRemoteVignetteType, type RemoteVignetteType } from '../src';
 
 type ConnectionData = {
+  // Host instance is scoped per websocket connection.
   host: RemoteVignetteHost;
   onBytes: ((bytes: Uint8Array) => void) | null;
 };
@@ -23,10 +24,14 @@ function toUint8Array(message: unknown): Uint8Array | null {
 
 const port = Number(Bun.env.VF_HOST_PORT ?? 8787);
 const hostname = String(Bun.env.VF_HOST_HOSTNAME ?? '0.0.0.0');
+
+// Select vignette type from env (`js` default, supports `wasm` and `native`).
 const envVignetteType = Bun.env.VF_VIGNETTE_TYPE;
 const vignetteType: RemoteVignetteType = isRemoteVignetteType(envVignetteType)
   ? envVignetteType
   : 'js';
+
+// Default vignette module path by type; `native` expects a factory path from app code.
 const defaultVignetteUrl =
   vignetteType === 'wasm'
     ? new URL('./vignettes/echo-wasm/out/echo-vignette.js', import.meta.url).href
@@ -39,6 +44,7 @@ Bun.serve<ConnectionData>({
   port,
   hostname,
   fetch(req, server) {
+    // New host per connection/session.
     const host = new RemoteVignetteHost({ vignetteType, vignetteModuleUrl });
 
     if (
@@ -57,6 +63,7 @@ Bun.serve<ConnectionData>({
   websocket: {
     open(ws) {
       const data = ws.data;
+      // Bridge host byte I/O to websocket send/receive.
       data.host.attachToPeer({
         send(bytes) {
           ws.send(bytes);
@@ -85,6 +92,7 @@ Bun.serve<ConnectionData>({
     async close(ws) {
       const data = ws.data;
       data.onBytes = null;
+      // Ensure vignette shutdown on socket close.
       await data.host.onShutdown();
     },
   },
