@@ -1,5 +1,5 @@
 {
-  "name": "wg-vf",
+  "name": "@whirlinggizmo/wg-vf",
   "version": "0.1.0",
   "description": "Whirling Gizmo Vignette Framework",
   "type": "module",
