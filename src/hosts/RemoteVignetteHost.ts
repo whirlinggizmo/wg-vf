@@ -52,6 +52,7 @@ export class RemoteVignetteHost implements VignetteHost {
   }
 
   attachToPeer(peer: BytePeer): void {
+    //console.debug('RemoteVignetteHost attaching to peer');
     this.setSendBytes((bytes) => peer.send(bytes));
     this.unbindPeer = peer.onBytes((bytes) => {
       void this.handleIncomingBytes(bytes);
@@ -118,6 +119,8 @@ export class RemoteVignetteHost implements VignetteHost {
   private async handleIncomingBytes(bytes: Uint8Array): Promise<void> {
     try {
       const envelope = decodeEnvelope(bytes);
+
+      //console.debug(envelope)
 
       if (envelope.messageKind === MessageKind.App) {
         await this.onAppMessage(envelope.payload);
@@ -220,6 +223,7 @@ export class RemoteVignetteHost implements VignetteHost {
     vignetteType: VignetteType,
     vignetteUrl?: string,
   ): Promise<Vignette> {
+    //console.debug("Trying to instantiate vignette: ", vignetteType, vignetteUrl)
     if (this.vignetteFactory) {
       return await this.vignetteFactory();
     }
@@ -254,7 +258,14 @@ export class RemoteVignetteHost implements VignetteHost {
       });
       return createWasmInstance(wasmModule);
     } else { // js loading
+      //console.debug("Attempting to dynamically import vignette: ", vignetteUrl)
       const mod = await import(/* @vite-ignore */ vignetteUrl);
+
+      if (!mod) {
+       throw new Error(`Failed to dynamically import vignette: ${vignetteUrl}`);
+      } else {
+        //console.debug("Successfully dynamically imported vignette: ", vignetteUrl)
+      }
 
       if (typeof mod.createVignette === "function") {
         return await mod.createVignette();

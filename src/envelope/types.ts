@@ -1,11 +1,11 @@
 export const ENVELOPE_VERSION = 1;
 
-export const enum MessageKind {
+export enum MessageKind {
   System = 1,
   App = 2,
 }
 
-export const enum SystemType {
+export enum SystemType {
   Init = 1,
   Ready = 2,
   Error = 3,

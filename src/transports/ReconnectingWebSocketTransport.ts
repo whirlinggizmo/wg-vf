@@ -11,6 +11,28 @@ export interface ReconnectingWebSocketTransportOptions {
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+async function messageDataToBytes(data: unknown): Promise<Uint8Array> {
+  if (data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  }
+
+  if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    return new Uint8Array(await data.arrayBuffer());
+  }
+
+  if (typeof data === 'string') {
+    return new TextEncoder().encode(data);
+  }
+
+  throw new Error(
+    `Unsupported WebSocket message payload type: ${Object.prototype.toString.call(data)}`,
+  );
+}
+
 export class ReconnectingWebSocketTransport implements Transport {
   private readonly url: string;
   private readonly minDelayMs: number;
@@ -148,10 +170,15 @@ export class ReconnectingWebSocketTransport implements Transport {
       ws.onerror = () => reject(new Error('WebSocket connection failed'));
     });
 
-    ws.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-      const bytes = new Uint8Array(event.data);
-      for (const listener of this.bytesListeners) {
-        listener(bytes);
+    ws.onmessage = async (event: MessageEvent) => {
+      try {
+        const bytes = await messageDataToBytes(event.data);
+        for (const listener of this.bytesListeners) {
+          listener(bytes);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.notifyError(new Error(`WebSocket message decode failed: ${message}`));
       }
     };
 
