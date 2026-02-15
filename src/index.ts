@@ -5,6 +5,7 @@ export type { VignetteType} from './VignetteTypes';
 export { isVignetteType } from './VignetteTypes';
 
 export { VignetteClientImpl } from './VignetteClient';
+export { BaseVignette } from './BaseVignette';
 
 export type { Transport } from './transports/Transport';
 export { WorkerTransport } from './transports/WorkerTransport';
