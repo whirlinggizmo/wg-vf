@@ -2,6 +2,44 @@
 
 Whirling Gizmo Vignette Framework.
 
+`wg-vf` is a small framework for running self-contained "vignettes" behind a
+message-based host boundary. A vignette is a unit of logic that can be hosted
+locally in a Web Worker or remotely behind a WebSocket server, while the app
+talks to it through the same client-side API.
+
+One of the main use cases is game or simulation logic that should behave like a
+"server" in both single-player and multiplayer modes:
+
+- run that logic locally for offline mode, development, or single-player
+- run the same logic remotely for multiplayer or shared simulation
+- keep the app-side protocol the same in both cases
+
+That lets a client move between local and remote hosting without having to know
+much about where the vignette is actually running.
+
+The main goal is to keep vignette code portable across hosting modes:
+
+- run the same vignette locally during development or offline use
+- move that vignette to a remote host without changing the app-facing protocol
+- support both JavaScript and WASM vignette implementations
+
+This is useful when you want app code to treat game logic, simulation logic, or
+other isolated runtime modules as a separate service boundary, even when that
+service is running locally.
+
+## Overview
+
+The project is organized around a few core pieces:
+
+- `VignetteClientImpl` gives the app a single client API for connect, send,
+  ready-state, and error handling.
+- transports such as `WorkerTransport` and `ReconnectingWebSocketTransport`
+  define how bytes move between app and host.
+- hosts such as `WorkerVignetteHost` and `RemoteVignetteHost` instantiate and
+  run the vignette on the other side of that transport.
+- vignettes can be authored in JavaScript or in WASM, as long as they satisfy
+  the expected host contract.
+
 ## Install
 
 ```bash
@@ -21,7 +59,8 @@ npm run build
 import { VignetteClientImpl, WorkerTransport } from 'wg-vf';
 ```
 
-See `examples/` for two parallel client examples:
+See `examples/` for two parallel client examples that use the same client flow
+with different hosting modes:
 
 - `examples/local-app.ts` runs a vignette in local mode using a `Worker` and `WorkerTransport`.
 - `examples/remote-app.ts` uses the same client flow over `ReconnectingWebSocketTransport` to talk to a remote host.
