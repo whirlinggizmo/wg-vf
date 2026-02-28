@@ -21,7 +21,12 @@ npm run build
 import { VignetteClientImpl, WorkerTransport } from 'wg-vf';
 ```
 
-See `examples/` for local worker and remote websocket setup.
+See `examples/` for two parallel client examples:
+
+- `examples/local-app.ts` runs a vignette in local mode using a `Worker` and `WorkerTransport`.
+- `examples/remote-app.ts` uses the same client flow over `ReconnectingWebSocketTransport` to talk to a remote host.
+
+Both examples choose a vignette type/url and send that selection in the `INIT` payload.
 
 ## Bun Remote Host Example
 
@@ -65,17 +70,7 @@ Input staging is supported via either:
 - `vf_mem_alloc/vf_mem_free`
 - or `vf_inbox_staging_offset/vf_inbox_staging_capacity`
 
-For worker mode, `VignetteWorker` can load JS or WASM by config:
-
-```ts
-worker.postMessage({
-  type: 'vf-config',
-  vignetteType: 'wasm',
-  vignetteUrl: new URL('./vignettes/echo-wasm/out/echo-vignette_wasm.js', import.meta.url).href,
-});
-```
-
-Both remote and worker modes can also provide per-session vignette selection in the `INIT` payload:
+Both remote and local modes can provide per-session vignette selection in the `INIT` payload:
 
 ```ts
 await vc.connect(
