@@ -53,6 +53,26 @@ npm install
 npm run build
 ```
 
+## Example Dev
+
+```bash
+bun run dev:local
+```
+
+Runs the local example app plus the vignette watcher.
+
+```bash
+bun run dev:remote
+```
+
+Runs the remote server, remote app, and the vignette watcher together.
+
+The example watch scripts explicitly restart when dynamically loaded vignette
+files change, including:
+
+- `examples/vignettes/echo-js/**`
+- `examples/vignettes/echo-wasm/out/echo-vignette*`
+
 ## Usage
 
 ```ts
@@ -65,7 +85,8 @@ with different hosting modes:
 - `examples/local-app.ts` runs a vignette in local mode using a `Worker` and `WorkerTransport`.
 - `examples/remote-app.ts` uses the same client flow over `ReconnectingWebSocketTransport` to talk to a remote host.
 
-Both examples choose a vignette type/url and send that selection in the `INIT` payload.
+Both examples currently default to the JS vignette path, choose a
+`vignetteType`/`vignetteUrl`, and send that selection in the `INIT` payload.
 
 ## Bun Remote Host Example
 
@@ -112,13 +133,13 @@ Input staging is supported via either:
 Both remote and local modes can provide per-session vignette selection in the `INIT` payload:
 
 ```ts
+import { encodeJsonPayload } from './examples/codec';
+
 await vc.connect(
-  new TextEncoder().encode(
-    JSON.stringify({
-      vignetteType: 'js',
-      vignetteUrl: new URL('./vignettes/echo-js/echo-vignette.ts', import.meta.url).href,
-      initPayload: { userId: 'rob' },
-    }),
-  ),
+  encodeJsonPayload({
+    vignetteType: 'js',
+    vignetteUrl: new URL('./vignettes/echo-js/echo-vignette.ts', import.meta.url).href,
+    initPayload: { userId: 'rob' },
+  }),
 );
 ```
