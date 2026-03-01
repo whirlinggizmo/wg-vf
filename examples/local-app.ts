@@ -1,11 +1,12 @@
 import { VignetteClientImpl, WorkerTransport, type VignetteType } from "../src";
+import { decodeJsonPayload, encodeJsonPayload } from "./codec";
 
 // Example app that runs a vignette in local mode using a Web Worker host.
 // It mirrors remote-app.ts on the client side, but uses WorkerTransport and
 // creates the host worker directly instead of connecting over WebSocket.
 
 // Choose which vignette implementation the worker should host.
-const vignetteType: VignetteType = "wasm";
+const vignetteType: VignetteType = "js";
 
 // the location of the vignette worker.
 // Note that this is the worker that hosts the vignette, not the vignette itself.
@@ -49,30 +50,28 @@ const vc = new VignetteClientImpl({ transport });
 // App callbacks.
 vc.onReady((ready) => {
   if (!ready) {
-    console.log("app not ready");
+    console.log("[client] vignette not ready");
     return;
   }
-  console.log("app ready");
-  vc.send(new TextEncoder().encode(JSON.stringify({ type: "SpawnPlayer" })));
+  console.log("[client] vignette ready");
+  vc.send(encodeJsonPayload({ type: "SpawnPlayer" }));
 });
 
 vc.onMessage((payload) => {
-  console.log("app message:", new TextDecoder().decode(payload));
+  console.log("[client] received message from vignette:", decodeJsonPayload(payload));
 });
 
 vc.onError((err) => {
-  console.error("vignette error:", err);
+  console.error("[client] received error from vignette:", err);
 });
 
 // Initiates INIT -> READY handshake.
 await vc.connect(
-  new TextEncoder().encode(
-    JSON.stringify({
+  encodeJsonPayload({
       vignetteType: vignetteType,
       vignetteUrl: vignetteUrl,
       initPayload: { userId: "Bob" },
-    }),
-  ),
+    })
 );
 
 // Connection established; continue to watch onReady for readiness changes.

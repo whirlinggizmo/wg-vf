@@ -24,10 +24,10 @@
     "dev": "bun run clean && bun run dev:local",
     "dev:remote": "bun run --parallel example:vignette:wasm:watch example:remote:server:watch example:remote:app:watch",
     "dev:local": "bun run --parallel example:vignette:wasm:watch example:local:watch",
-    "example:local:watch": "bun run --watch examples/local-app.ts",
+    "example:local:watch": "onchange --initial --kill \"examples/vignettes/echo-wasm/out/echo-vignette*\" \"examples/vignettes/echo-js/**\" -- bun run --watch examples/local-app.ts",
     "example:remote:app:watch": "bun run --watch examples/remote-app.ts",
-    "example:remote:server:watch": "bun run --watch examples/remote-server.ts",
-    "example:vignette:wasm:build": "cd examples/vignettes/echo-wasm && nim build",
+    "example:remote:server:watch": "onchange --initial --kill \"examples/vignettes/echo-wasm/out/echo-vignette*\" \"examples/vignettes/echo-js/**\" -- bun run --watch examples/remote-server.ts",
+    "example:vignette:wasm:build": "cd examples/vignettes/echo-wasm && nim build wasm",
     "example:vignette:wasm:watch": "bun run example:vignette:wasm:build && onchange \"examples/vignettes/echo-wasm/src/**\" -- bun run example:vignette:wasm:build"
   },
   "devDependencies": {
