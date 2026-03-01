@@ -43,7 +43,7 @@ The project is organized around a few core pieces:
 ## Install
 
 ```bash
-npm install wg-vf
+npm install @whirlinggizmo/wg-vf
 ```
 
 ## Build
@@ -53,16 +53,28 @@ npm install
 npm run build
 ```
 
+To remove stale output first:
+
+```bash
+npm run rebuild
+```
+
 ## Example Dev
 
 ```bash
-bun run dev:local
+npm run dev
+```
+
+Watches and rebuilds the package `dist/` output.
+
+```bash
+npm run example
 ```
 
 Runs the local example app plus the vignette watcher.
 
 ```bash
-bun run dev:remote
+npm run example:remote
 ```
 
 Runs the remote server, remote app, and the vignette watcher together.
@@ -76,7 +88,7 @@ files change, including:
 ## Usage
 
 ```ts
-import { VignetteClientImpl, WorkerTransport } from 'wg-vf';
+import { VignetteClientImpl, WorkerTransport } from '@whirlinggizmo/wg-vf';
 ```
 
 See `examples/` for two parallel client examples that use the same client flow
