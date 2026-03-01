@@ -18,22 +18,25 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "rebuild": "npm run clean && npm run build",
     "check": "tsc --noEmit -p tsconfig.build.json",
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist",
     "prepare": "npm run build",
     "dev": "tsc -w -p tsconfig.build.json",
-    "example": "bun run clean && bun run example:local",
-    "example:remote": "bun run --parallel example:vignette:wasm:watch example:remote:server:watch example:remote:app:watch",
-    "example:local": "bun run --parallel example:vignette:wasm:watch example:local:watch",
+    "example": "npm run example:local",
+    "example:remote": "run-p example:vignette:wasm:watch example:remote:server:watch example:remote:app:watch",
+    "example:local": "run-p example:vignette:wasm:watch example:local:watch",
     "example:local:watch": "onchange --initial --kill \"examples/vignettes/echo-wasm/out/echo-vignette*\" \"examples/vignettes/echo-js/**\" -- bun run --watch examples/local-app.ts",
     "example:remote:app:watch": "bun run --watch examples/remote-app.ts",
     "example:remote:server:watch": "onchange --initial --kill \"examples/vignettes/echo-wasm/out/echo-vignette*\" \"examples/vignettes/echo-js/**\" -- bun run --watch examples/remote-server.ts",
     "example:vignette:wasm:build": "cd examples/vignettes/echo-wasm && nim build wasm",
-    "example:vignette:wasm:watch": "bun run example:vignette:wasm:build && onchange \"examples/vignettes/echo-wasm/src/**\" -- bun run example:vignette:wasm:build"
+    "example:vignette:wasm:watch": "npm run example:vignette:wasm:build && onchange \"examples/vignettes/echo-wasm/src/**\" -- npm run example:vignette:wasm:build"
   },
   "devDependencies": {
     "@types/bun": "^1.3.9",
+    "npm-run-all": "^4.1.5",
     "onchange": "^7.1.0",
+    "rimraf": "^6.0.1",
     "typescript": "^5.8.2"
   }
 }
