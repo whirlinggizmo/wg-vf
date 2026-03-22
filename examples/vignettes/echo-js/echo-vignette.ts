@@ -8,19 +8,21 @@ export default class EchoVignette implements Vignette {
     // no-op for example
 
     // assume it's json?
-    console.log("[vignette] received init from client: ", decodeJsonPayload(payload));
+    console.log("[vignette (js)] init: ", decodeJsonPayload(payload));
   }
 
   async tick(_dtUs: number, _frameId: number): Promise<void> {
+    //console.log("[vignette (js)] tick");
     // no-op for example
   }
 
   async fixedTick(_stepUs: number, _stepIndex: number): Promise<void> {
+    //console.log("[vignette (js)] fixed tick");
     // no-op for example
   }
 
   async handleMessage(payload: Uint8Array): Promise<void> {
-    console.log("[vignette] received message from client: ", decodeJsonPayload(payload));
+    console.log("[vignette (js)] received message: ", decodeJsonPayload(payload));
 
     // echo it back
     this.outbox.push(payload.slice());

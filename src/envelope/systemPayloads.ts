@@ -1,7 +1,8 @@
-import { type VignetteType, isVignetteType } from '../VignetteTypes';
+import { type VignetteType, isVignetteType } from '../Vignette';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const PING_PAYLOAD_SIZE = 12;
 
 export interface ReadyPayload {
   ready: boolean;
@@ -11,6 +12,11 @@ export interface ReadyPayload {
 export interface ErrorPayload {
   message: string;
   code?: string;
+}
+
+export interface PingPayload {
+  sequence: number;
+  sentAtMs: number;
 }
 
 function encodeJson(payload: unknown): Uint8Array {
@@ -73,5 +79,25 @@ export function decodeErrorPayload(payload: Uint8Array): ErrorPayload | null {
   return {
     message: candidate.message,
     code: candidate.code,
+  };
+}
+
+export function encodePingPayload(payload: PingPayload): Uint8Array {
+  const bytes = new Uint8Array(PING_PAYLOAD_SIZE);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  view.setUint32(0, payload.sequence >>> 0, true);
+  view.setFloat64(4, payload.sentAtMs, true);
+  return bytes;
+}
+
+export function decodePingPayload(payload: Uint8Array): PingPayload | null {
+  if (payload.length !== PING_PAYLOAD_SIZE) {
+    return null;
+  }
+
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return {
+    sequence: view.getUint32(0, true),
+    sentAtMs: view.getFloat64(4, true),
   };
 }

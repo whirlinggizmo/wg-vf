@@ -1,68 +1,69 @@
-import {
-  ReconnectingWebSocketTransport,
-  VignetteClientImpl,
-  type VignetteType,
-} from "../src";
+import { VignetteBridge, type VignetteType } from "../src";
 import { decodeJsonPayload, encodeJsonPayload } from "./codec";
 
-// Example app that talks to a remote vignette host over WebSocket.
-// It mirrors local-app.ts on the client side, but uses a reconnecting socket
-// transport instead of spinning up a local Worker host.
-
-// Choose which vignette implementation the remote host should load.
-const vignetteType: VignetteType = "js";
+const vignetteType: VignetteType = "wasm";
 
 function getVignetteUrl(type: VignetteType): string {
   switch (type) {
     case "wasm":
-      // WASM vignette Emscripten loader:
       return new URL(
         "./vignettes/echo-wasm/out/echo-vignette_wasm.js",
         import.meta.url,
       ).href;
     case "js":
-      // JS vignette module:
       return new URL("./vignettes/echo-js/echo-vignette.ts", import.meta.url)
         .href;
-    default:
-      throw new Error(`Unknown vignetteType: ${type}`);
   }
 }
 
-const vignetteUrl = getVignetteUrl(vignetteType);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-// Reconnecting transport keeps retrying when the server is down or restarted.
-const transport = new ReconnectingWebSocketTransport({
+const bridge = new VignetteBridge();
+
+await bridge.connect({
+  mode: "remote",
   url: "ws://localhost:8787",
-  maxDelayMs: 3000,
 });
 
-// App-facing client API.
-const vc = new VignetteClientImpl({ transport });
-
-// App callbacks.
-vc.onReady((ready) => {
-  if (!ready) {
-    console.log("[client] vignette not ready");
-    return;
-  }
-  console.log("[client] vignette ready");
-  vc.send(encodeJsonPayload({ type: "SpawnPlayer" }));
-});
-
-vc.onMessage((payload) => {
-  console.log("[client] received message from vignette:", decodeJsonPayload(payload));
-});
-
-vc.onError((err) => {
-  console.error("[client] received error from vignette:", err);
-});
-
-// Initiates INIT -> READY handshake (and reconnection re-init is automatic).
-await vc.connect(
+await bridge.init(
   encodeJsonPayload({
-    vignetteType: vignetteType,
-    vignetteUrl: vignetteUrl,
+    vignetteType,
+    vignetteUrl: getVignetteUrl(vignetteType),
     initPayload: { userId: "Bob" },
   }),
 );
+
+bridge.handleMessage(encodeJsonPayload({ type: "SpawnPlayer" }));
+
+let pingInterval = setInterval(() => {
+  bridge.ping().then((result) => {
+    console.log(
+      `[bridge] ping: ${result.rttMs}ms`,
+    );
+  });
+}, 5000);
+
+let messagesReceived = 0;
+let checkMessagesInterval = setInterval(() => {
+  const messages = bridge.pollOutbox();
+  if (messages.length > 0) {
+    messagesReceived += messages.length;
+    for (const payload of messages) {
+      console.log(
+        "[bridge] received message from vignette:",
+        decodeJsonPayload(payload),
+      );
+    }
+  }
+}, 100);
+
+await sleep(8000);
+
+console.log("[bridge] timeout reached, disconnecting from vignette");
+clearInterval(checkMessagesInterval);
+clearInterval(pingInterval);
+console.log("[bridge] disconnecting from vignette");
+await bridge.disconnect();
+console.log("[bridge] disconnected");

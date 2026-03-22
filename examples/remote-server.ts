@@ -1,4 +1,4 @@
-import { RemoteVignetteHost, isVignetteType } from '../src';
+import { RemoteVignetteHost } from '../src';
 
 type ConnectionData = {
   // Host instance is scoped per websocket connection.
@@ -24,20 +24,18 @@ function toUint8Array(message: unknown): Uint8Array | null {
 
 const port = Number(Bun.env.VF_HOST_PORT ?? 8787);
 const hostname = String(Bun.env.VF_HOST_HOSTNAME ?? '0.0.0.0');
-const envVignetteType = Bun.env.VF_VIGNETTE_TYPE;
-const vignetteType = isVignetteType(envVignetteType) ? envVignetteType : 'js';
-const defaultVignetteUrl =
-  vignetteType === 'wasm'
-    ? new URL('./vignettes/echo-wasm/out/echo-vignette.js', import.meta.url).href
-    : new URL('./vignettes/echo-js/echo-vignette.ts', import.meta.url).href;
-const vignetteUrl = Bun.env.VF_VIGNETTE_URL ?? defaultVignetteUrl;
+
+console.log(`Starting wg-vf Bun server with config:`);
+console.log(`  Hostname: ${hostname}`);
+console.log(`  Port: ${port}`);
+console.log(`  Vignette Selection: client-authoritative`);
 
 Bun.serve<ConnectionData>({
   port,
   hostname,
   fetch(req, server) {
     // New host per connection/session.
-    const host = new RemoteVignetteHost({ vignetteType, vignetteUrl });
+    const host = new RemoteVignetteHost({});
 
     if (
       server.upgrade(req, {

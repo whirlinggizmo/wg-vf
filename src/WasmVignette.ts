@@ -38,7 +38,7 @@ export interface WasmVignetteInstance {
   _vf_mem_free?: WasmExportFn;
 }
 
-class WasmVignetteImpl implements Vignette {
+class WasmVignette implements Vignette {
   private readonly getHeapU8: HeapU8Provider;
   private readonly exports: WasmCallExports;
   private readonly outbox: Uint8Array[] = [];
@@ -255,7 +255,7 @@ export function createWasmInstance(
     vf_mem_free: module._vf_mem_free,
   };
 
-  return new WasmVignetteImpl(
+  return new WasmVignette(
     () => module.HEAPU8,
     callExports,
     options?.inboxStagingOffset,

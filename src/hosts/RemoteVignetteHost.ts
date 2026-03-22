@@ -1,16 +1,14 @@
-import type { Vignette } from "../Vignette";
-import type { VignetteHost } from "../VignetteHost";
-import { isVignetteType, type VignetteType } from "../VignetteTypes";
-import { createWasmInstance, type WasmVignetteInstance } from "../WasmVignette";
-import { decodeEnvelope } from "../envelope/decode";
-import { encodeAppEnvelope, encodeSystemEnvelope } from "../envelope/encode";
+import type { VignetteHost } from '../VignetteHost';
+import { type Vignette, type VignetteType, instantiateVignetteFromModuleUrl, isVignetteType } from '../Vignette';
+import { decodeEnvelope } from '../envelope/decode';
+import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
 import {
   encodeErrorPayload,
   encodeReadyPayload,
-} from "../envelope/systemPayloads";
-import { MessageKind, SystemType } from "../envelope/types";
+} from '../envelope/systemPayloads';
+import { MessageKind, SystemType } from '../envelope/types';
 
-type HostState = "IDLE" | "INITING" | "READY" | "SHUTTING_DOWN" | "CLOSED";
+type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
 
 interface BytePeer {
   send(bytes: Uint8Array): void;
@@ -19,40 +17,38 @@ interface BytePeer {
 
 interface RemoteVignetteHostOptions {
   vignetteFactory?: () => Vignette | Promise<Vignette>;
-  vignetteUrl?: string;
-  vignetteType?: VignetteType;
   fixedStepUs?: number;
   maxSubsteps?: number;
 }
 
+type ResolvedInitPayload = {
+  vignetteType: VignetteType;
+  vignetteUrl?: string;
+  vignetteInitPayload: Uint8Array;
+};
+
 export class RemoteVignetteHost implements VignetteHost {
   private readonly vignetteFactory?: () => Vignette | Promise<Vignette>;
-  private readonly defaultVignetteUrl?: string;
-  private readonly defaultVignetteType: VignetteType;
   private readonly fixedStepUs: number;
   private readonly maxSubsteps: number;
   private sendBytes: ((bytes: Uint8Array) => void) | null = null;
   private vignette: Vignette | null = null;
-  private state: HostState = "IDLE";
+  private state: HostState = 'IDLE';
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private unbindPeer: (() => void) | null = null;
   private frameId = 0;
   private stepIndex = 0;
   private accUs = 0;
   private lastUs = 0;
-  private currentVignetteType: VignetteType;
+  private currentVignetteType: VignetteType = 'js';
 
   constructor(options: RemoteVignetteHostOptions) {
     this.vignetteFactory = options.vignetteFactory;
-    this.defaultVignetteUrl = options.vignetteUrl;
-    this.defaultVignetteType = options.vignetteType ?? "js";
-    this.currentVignetteType = this.defaultVignetteType;
     this.fixedStepUs = (options.fixedStepUs ?? 16_666) >>> 0;
     this.maxSubsteps = (options.maxSubsteps ?? 4) >>> 0;
   }
 
   attachToPeer(peer: BytePeer): void {
-    //console.debug('RemoteVignetteHost attaching to peer');
     this.setSendBytes((bytes) => peer.send(bytes));
     this.unbindPeer = peer.onBytes((bytes) => {
       void this.handleIncomingBytes(bytes);
@@ -64,11 +60,11 @@ export class RemoteVignetteHost implements VignetteHost {
   }
 
   async onInit(initPayload: Uint8Array): Promise<void> {
-    if (this.state !== "IDLE") {
+    if (this.state !== 'IDLE') {
       throw new Error(`Host cannot init in state ${this.state}`);
     }
 
-    this.state = "INITING";
+    this.state = 'INITING';
     const resolved = this.resolveInitPayload(initPayload);
     this.currentVignetteType = resolved.vignetteType;
     this.vignette = await this.instantiateVignette(
@@ -77,16 +73,16 @@ export class RemoteVignetteHost implements VignetteHost {
     );
     await this.vignette.init(resolved.vignetteInitPayload);
     console.info(
-      `[wg-vf] remote host initialized vignette type=${resolved.vignetteType} url=${resolved.vignetteUrl ?? "(factory)"}`,
+      `[wg-vf] remote host initialized vignette type=${resolved.vignetteType} url=${resolved.vignetteUrl ?? '(factory)'}`,
     );
-    this.state = "READY";
+    this.state = 'READY';
     this.startTickLoop();
     this.drainOutbox();
     this.emitSystem(SystemType.Ready, this.createReadyPayload());
   }
 
   async onAppMessage(payload: Uint8Array): Promise<void> {
-    if (this.state !== "READY" || !this.vignette) {
+    if (this.state !== 'READY' || !this.vignette) {
       return;
     }
     await this.vignette.handleMessage(payload);
@@ -94,11 +90,11 @@ export class RemoteVignetteHost implements VignetteHost {
   }
 
   async onShutdown(): Promise<void> {
-    if (this.state === "CLOSED" || this.state === "SHUTTING_DOWN") {
+    if (this.state === 'CLOSED' || this.state === 'SHUTTING_DOWN') {
       return;
     }
 
-    this.state = "SHUTTING_DOWN";
+    this.state = 'SHUTTING_DOWN';
 
     if (this.loopTimer) {
       clearTimeout(this.loopTimer);
@@ -113,14 +109,12 @@ export class RemoteVignetteHost implements VignetteHost {
     }
 
     this.vignette = null;
-    this.state = "CLOSED";
+    this.state = 'CLOSED';
   }
 
   private async handleIncomingBytes(bytes: Uint8Array): Promise<void> {
     try {
       const envelope = decodeEnvelope(bytes);
-
-      //console.debug(envelope)
 
       if (envelope.messageKind === MessageKind.App) {
         await this.onAppMessage(envelope.payload);
@@ -129,6 +123,11 @@ export class RemoteVignetteHost implements VignetteHost {
 
       if (envelope.systemType === SystemType.Init) {
         await this.onInit(envelope.payload);
+        return;
+      }
+
+      if (envelope.systemType === SystemType.Ping) {
+        this.emitSystem(SystemType.Pong, envelope.payload);
         return;
       }
 
@@ -144,7 +143,7 @@ export class RemoteVignetteHost implements VignetteHost {
     this.lastUs = this.nowUs();
 
     const tick = async () => {
-      if (this.state !== "READY" || !this.vignette) {
+      if (this.state !== 'READY' || !this.vignette) {
         return;
       }
 
@@ -213,7 +212,7 @@ export class RemoteVignetteHost implements VignetteHost {
   }
 
   private nowUs(): number {
-    if (typeof performance !== "undefined" && performance.now) {
+    if (typeof performance !== 'undefined' && performance.now) {
       return (performance.now() * 1000) >>> 0;
     }
     return (Date.now() * 1000) >>> 0;
@@ -223,74 +222,24 @@ export class RemoteVignetteHost implements VignetteHost {
     vignetteType: VignetteType,
     vignetteUrl?: string,
   ): Promise<Vignette> {
-    //console.debug("Trying to instantiate vignette: ", vignetteType, vignetteUrl)
     if (this.vignetteFactory) {
       return await this.vignetteFactory();
     }
 
     if (!vignetteUrl) {
-      throw new Error("No vignetteFactory or vignetteUrl provided");
+      throw new Error('No vignetteFactory or vignetteUrl provided');
     }
 
-    // wasm loader
-    if (vignetteType === "wasm") {
-      const moduleFactory = (await import(/* @vite-ignore */ vignetteUrl))
-        .default as (opts?: {
-        locateFile?: (path: string) => string;
-      }) => Promise<WasmVignetteInstance>;
-
-      if (typeof moduleFactory !== "function") {
-        throw new Error(
-          "WASM vignette module must default-export an Emscripten module factory",
-        );
-      }
-
-
-      // `moduleFactory` comes from the generated Emscripten JS module's default export.
-      // The JS loader has already been imported above; now we invoke that factory to create
-      // a runtime module instance (HEAPU8 + exported `_vf_*` functions).
-      const wasmDirUrl = new URL("./", vignetteUrl).href;
-      const wasmModule = await moduleFactory({
-        // `locateFile` is a standard Emscripten module option.
-        // We provide it so any side files (especially `.wasm`) resolve relative to the
-        // vignette loader URL, which avoids runtime path surprises across environments.
-        locateFile: (path: string) => new URL(path, wasmDirUrl).href,
-      });
-      return createWasmInstance(wasmModule);
-    } else { // js loading
-      //console.debug("Attempting to dynamically import vignette: ", vignetteUrl)
-      const mod = await import(/* @vite-ignore */ vignetteUrl);
-
-      if (!mod) {
-       throw new Error(`Failed to dynamically import vignette: ${vignetteUrl}`);
-      } else {
-        //console.debug("Successfully dynamically imported vignette: ", vignetteUrl)
-      }
-
-      if (typeof mod.createVignette === "function") {
-        return await mod.createVignette();
-      }
-
-      if (typeof mod.default === "function") {
-        return new mod.default();
-      }
-
-      throw new Error(
-        "Vignette module must export createVignette() or a default class",
-      );
-    }
+    return await instantiateVignetteFromModuleUrl(vignetteType, vignetteUrl);
   }
 
-  private resolveInitPayload(initPayload: Uint8Array): {
-    vignetteType: VignetteType;
-    vignetteUrl?: string;
-    vignetteInitPayload: Uint8Array;
-  } {
-    const fallback = {
-      vignetteType: this.defaultVignetteType,
-      vignetteUrl: this.defaultVignetteUrl,
-      vignetteInitPayload: initPayload,
-    };
+  private resolveInitPayload(initPayload: Uint8Array): ResolvedInitPayload {
+    if (this.vignetteFactory) {
+      return {
+        vignetteType: this.currentVignetteType,
+        vignetteInitPayload: initPayload,
+      };
+    }
 
     try {
       const parsed = JSON.parse(new TextDecoder().decode(initPayload)) as {
@@ -299,26 +248,29 @@ export class RemoteVignetteHost implements VignetteHost {
         initPayload?: unknown;
       };
 
-      const vignetteType =
-        isVignetteType(parsed?.vignetteType)
-          ? parsed.vignetteType
-          : this.defaultVignetteType;
-      const vignetteUrl =
-        typeof parsed?.vignetteUrl === "string"
-          ? parsed.vignetteUrl
-          : this.defaultVignetteUrl;
+      if (!isVignetteType(parsed?.vignetteType)) {
+        throw new Error('Remote init payload must include vignetteType');
+      }
+
+      if (typeof parsed?.vignetteUrl !== 'string') {
+        throw new Error('Remote init payload must include vignetteUrl');
+      }
+
       const vignetteInitPayload =
-        parsed && Object.prototype.hasOwnProperty.call(parsed, "initPayload")
+        parsed && Object.prototype.hasOwnProperty.call(parsed, 'initPayload')
           ? new TextEncoder().encode(JSON.stringify(parsed.initPayload))
           : initPayload;
 
       return {
-        vignetteType,
-        vignetteUrl,
+        vignetteType: parsed.vignetteType,
+        vignetteUrl: parsed.vignetteUrl,
         vignetteInitPayload,
       };
-    } catch {
-      return fallback;
+    } catch (err) {
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new Error('Remote init payload must be JSON with vignetteType, vignetteUrl, and optional initPayload');
     }
   }
 }

@@ -1,7 +1,5 @@
-import type { Vignette } from '../Vignette';
+import { type Vignette, type VignetteType, instantiateVignetteFromModuleUrl, isVignetteType } from '../Vignette';
 import type { VignetteHost } from '../VignetteHost';
-import { isVignetteType, type VignetteType } from '../VignetteTypes';
-import { createWasmInstance, type WasmVignetteInstance } from '../WasmVignette';
 import { decodeEnvelope } from '../envelope/decode';
 import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
 import { encodeErrorPayload, encodeReadyPayload } from '../envelope/systemPayloads';
@@ -9,15 +7,15 @@ import { MessageKind, SystemType } from '../envelope/types';
 
 type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
 
-interface WorkerVignetteHostOptions {
+interface LocalVignetteHostOptions {
   vignetteFactory?: () => Vignette | Promise<Vignette>;
-  vignetteModuleUrl?: string;
+  vignetteUrl?: string;
   vignetteType?: VignetteType;
   fixedStepUs?: number;
   maxSubsteps?: number;
 }
 
-export class WorkerVignetteHost implements VignetteHost {
+export class LocalVignetteHost implements VignetteHost {
   private readonly vignetteFactory?: () => Vignette | Promise<Vignette>;
   private readonly defaultVignetteUrl?: string;
   private readonly defaultVignetteType: VignetteType;
@@ -33,9 +31,9 @@ export class WorkerVignetteHost implements VignetteHost {
   private lastUs = 0;
   private currentVignetteType: VignetteType;
 
-  constructor(options: WorkerVignetteHostOptions) {
+  constructor(options: LocalVignetteHostOptions) {
     this.vignetteFactory = options.vignetteFactory;
-    this.defaultVignetteUrl = options.vignetteModuleUrl;
+    this.defaultVignetteUrl = options.vignetteUrl;
     this.defaultVignetteType = options.vignetteType ?? 'js';
     this.currentVignetteType = this.defaultVignetteType;
     this.fixedStepUs = (options.fixedStepUs ?? 16_666) >>> 0;
@@ -116,6 +114,11 @@ export class WorkerVignetteHost implements VignetteHost {
         return;
       }
 
+      if (envelope.systemType === SystemType.Ping) {
+        this.emitSystem(SystemType.Pong, envelope.payload);
+        return;
+      }
+
       if (envelope.systemType === SystemType.Shutdown) {
         await this.onShutdown();
       }
@@ -191,7 +194,7 @@ export class WorkerVignetteHost implements VignetteHost {
   }
 
   private nowUs(): number {
-    return ((performance.now() * 1000) >>> 0);
+    return (performance.now() * 1000) >>> 0;
   }
 
   private async instantiateVignette(vignetteType: VignetteType, vignetteUrl?: string): Promise<Vignette> {
@@ -200,40 +203,10 @@ export class WorkerVignetteHost implements VignetteHost {
     }
 
     if (!vignetteUrl) {
-      throw new Error('No vignetteFactory or vignetteModuleUrl provided');
+      throw new Error('No vignetteFactory or vignetteUrl provided');
     }
 
-    if (vignetteType === 'wasm') {
-      if (typeof WorkerGlobalScope === 'undefined' && typeof self !== 'undefined') {
-        (globalThis as Record<string, unknown>).WorkerGlobalScope = class WorkerGlobalScopeShim {};
-      }
-
-      const moduleFactory = (await import(/* @vite-ignore */ vignetteUrl)).default as (opts?: {
-        locateFile?: (path: string) => string;
-      }) => Promise<WasmVignetteInstance>;
-
-      if (typeof moduleFactory !== 'function') {
-        throw new Error('WASM vignette module must default-export an Emscripten module factory');
-      }
-
-      const wasmDirUrl = new URL('./', vignetteUrl).href;
-      const wasmModule = await moduleFactory({
-        locateFile: (path: string) => new URL(path, wasmDirUrl).href,
-      });
-      return createWasmInstance(wasmModule);
-    }
-
-    const mod = await import(/* @vite-ignore */ vignetteUrl);
-
-    if (typeof mod.createVignette === 'function') {
-      return await mod.createVignette();
-    }
-
-    if (typeof mod.default === 'function') {
-      return new mod.default();
-    }
-
-    throw new Error('Vignette module must export createVignette() or a default class');
+    return await instantiateVignetteFromModuleUrl(vignetteType, vignetteUrl);
   }
 
   private resolveInitPayload(initPayload: Uint8Array): {
