@@ -14,7 +14,7 @@ export interface LocalVignetteBridgeConfig {
 
 export interface RemoteVignetteBridgeConfig {
   mode: 'remote';
-  url: string;
+  remoteUrl: string;
 }
 
 export type VignetteBridgeConfig = LocalVignetteBridgeConfig | RemoteVignetteBridgeConfig;
@@ -139,7 +139,7 @@ export class VignetteBridge {
 
   async connect(config: VignetteBridgeConfig): Promise<void> {
     if (config.mode === 'remote') {
-      await this.connectRemote(config.url);
+      await this.connectRemote(config.remoteUrl);
       return;
     }
 

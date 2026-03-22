@@ -6,6 +6,7 @@ import type {
   VignetteBridgeRequest,
   VignetteBridgeWorkerMessage,
   LocalVignetteBridgeConfig,
+  RemoteVignetteBridgeConfig,
 } from './VignetteBridge';
 import type { VignetteHost } from './VignetteHost';
 
@@ -60,7 +61,7 @@ class VignetteBridgeWorkerRuntime {
 
   private async connect(
     workerScope: DedicatedWorkerGlobalScope,
-    config: LocalVignetteBridgeConfig | { mode: 'remote'; url: string },
+    config: LocalVignetteBridgeConfig | RemoteVignetteBridgeConfig,
   ): Promise<void> {
     await this.disconnect();
 

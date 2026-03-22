@@ -24,7 +24,7 @@ const bridge = new VignetteBridge();
 
 await bridge.connect({
   mode: "remote",
-  url: "ws://localhost:8787",
+  remoteUrl: "ws://localhost:8787",
 });
 
 await bridge.init(
