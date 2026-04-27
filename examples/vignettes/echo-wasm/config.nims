@@ -9,7 +9,7 @@ when declared(switch):
   switch("hints", "off")
   switch("verbosity", "1") # disable verbose output
 
-  const buildTypes = @["js", "wasm", "c", "cpp"]
+  const buildTypes = @["js", "wasm", "c", "cpp", "all"]
   const outDir = "./out"
   const vignetteName = "echo-vignette"
   const mainEntryFile = "src/main.nim"
@@ -110,26 +110,18 @@ when declared(switch):
 
   proc printUsage() =
 
-    echo "Usage: nim build [js|wasm|c|cpp]"
+    echo "Usage: nim build [js|wasm|c|cpp|all]"
     echo "       nim clean"
+    echo ""
+    echo "If no build type is provided, builds 'all' (js + wasm)"
 
   proc taskParams(): seq[string] =
     result = commandLineParams()
     while result.len > 0 and result[0].startsWith("-"):
       result.delete(0)
 
-  task build, "build [build_type]":
-    let params = taskParams()
-    if params.len > 1 and (params[1].toLower() == "help" or params[0].toLower() == "--help"):
-      printUsage()
-      return
-
-    var buildType = if params.len > 1: params[1].toLower() else: "wasm"
-    if buildType notin buildTypes:
-      echo "Unknown build type: " & buildType
-      printUsage()
-      return
-
+  proc buildSingle(buildType: string): bool =
+    ## Builds a single target. Returns true on success, false on failure.
     var commandType = "js"
     var commandDefines: seq[string] = @[]
     var commandFlags: seq[string] = @[]
@@ -142,16 +134,14 @@ when declared(switch):
         commandType = "c"
         commandDefines.add("emscripten")
       of "c":
-        commandType = "c"
         echo "Refusing to build for C, this probably isn't what you want."
-        return
+        return false
       of "cpp":
-        commandType = "cpp"
         echo "Refusing to build for C++, this probably isn't what you want."
-        return
+        return false
       else:
         echo "Unknown build type: " & buildType
-        return
+        return false
 
     echo "Building " & vignetteName & " for " & buildType.toUpper() & "..."
     try:
@@ -160,12 +150,39 @@ when declared(switch):
       if commandDefines.len > 0: cmd &= "-d:" & commandDefines.join(" -d:") & " "
       cmd &= mainEntryFile
       echo "Running command: nim " & cmd & "..."
-      withDir(thisDir()): 
+      withDir(thisDir()):
         selfExec(cmd)
     except:
       echo "Failed to build " & vignetteName & " for " & buildType.toUpper()
+      return false
+    echo "Build complete for " & buildType.toUpper() & "."
+    return true
+
+  task build, "build [build_type]":
+    let params = taskParams()
+    if params.len > 1 and (params[1].toLower() == "help" or params[0].toLower() == "--help"):
+      printUsage()
       return
-    echo "Build complete."
+
+    var buildType = if params.len > 1: params[1].toLower() else: "all"
+    if buildType notin buildTypes:
+      echo "Unknown build type: " & buildType
+      printUsage()
+      return
+
+    if buildType == "all":
+      echo "Building all targets (js + wasm)..."
+      let jsSuccess = buildSingle("js")
+      let wasmSuccess = buildSingle("wasm")
+      if jsSuccess and wasmSuccess:
+        echo "All builds complete."
+      else:
+        echo "One or more builds failed."
+        quit(1)
+    else:
+      let success = buildSingle(buildType)
+      if not success:
+        quit(1)
     
     #[
     # build the shared messages.nim
