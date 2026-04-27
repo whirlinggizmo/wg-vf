@@ -33,6 +33,12 @@ class RemoteApp extends BaseApp {
       }
     }, 5000);
   }
+
+  protected override onDisconnect(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+    }
+  }
 }
 
 await new RemoteApp().run();

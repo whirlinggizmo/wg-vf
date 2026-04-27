@@ -46,6 +46,9 @@ export abstract class BaseApp {
   // Optional hook for subclasses to add extra setup (e.g., ping intervals)
   protected onConnected?(): void;
 
+  // Optional hook for subclasses to clean up before disconnect
+  protected onDisconnect?(): void;
+
   async run(): Promise<void> {
     await this.bridge.connect(this.getConnectOptions());
     await this.bridge.init(this.getInitPayload());
@@ -73,6 +76,8 @@ export abstract class BaseApp {
     setTimeout(async () => {
       console.log("[app] test timeout reached, disconnecting from vignette");
       clearInterval(checkMessagesInterval);
+      // Cleanup subclass resources before disconnect
+      this.onDisconnect?.();
       await this.bridge.disconnect();
     }, 5000);
   }
