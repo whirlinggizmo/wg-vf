@@ -1,78 +1,38 @@
-import { VignetteBridge, type VignetteType } from "../../src";
-// Swap this import to use a different codec (msgpack, protobuf, etc.)
-import { decodePayload, encodePayload } from "../codecs/json-codec";
+import { encodePayload } from "../codecs/json-codec";
+import { BaseApp, type RemoteConnectOptions } from "./app-base";
 
-const vignetteType: VignetteType = "wasm";
+class RemoteApp extends BaseApp {
+  private pingInterval?: ReturnType<typeof setInterval>;
 
-function getVignetteUrl(type: VignetteType): string {
-  switch (type) {
-    case "wasm":
-      return new URL(
-        "./vignette/wasm/out/simple-vignette_wasm.js",
-        import.meta.url,
-      ).href;
-    case "js":
-      return new URL("./vignette/js/simple-vignette.ts", import.meta.url).href;
+  getConnectOptions(): RemoteConnectOptions {
+    return {
+      mode: "remote",
+      remoteUrl: "ws://localhost:8787",
+    };
+  }
+
+  getInitPayload(): Uint8Array {
+    return encodePayload({
+      vignetteType: this.vignetteType,
+      vignetteUrl: this.getVignetteUrl(this.vignetteType),
+      initPayload: { userId: "Bob" },
+    });
+  }
+
+  protected override onConnected(): void {
+    this.pingInterval = setInterval(() => {
+      if (this.bridge.isConnected()) {
+        this.bridge
+          .ping()
+          .then((result) => {
+            console.log(`[bridge] ping: ${result.rttMs}ms`);
+          })
+          .catch((reason) => {
+            console.log(`[app] ping failed: ${reason}`);
+          });
+      }
+    }, 5000);
   }
 }
 
-/*
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-*/
-
-const bridge = new VignetteBridge();
-
-await bridge.connect({
-  mode: "remote",
-  remoteUrl: "ws://localhost:8787",
-});
-
-await bridge.init(
-  encodePayload({
-    vignetteType,
-    vignetteUrl: getVignetteUrl(vignetteType),
-    initPayload: { userId: "Bob" },
-  }),
-);
-
-bridge.handleMessage(encodePayload({ type: "SpawnPlayer" }));
-
-let pingInterval = setInterval(() => {
-  if (bridge.isConnected()) {
-    bridge
-      .ping()
-      .then((result) => {
-        console.log(`[bridge] ping: ${result.rttMs}ms`);
-      })
-      .catch((reason) => {
-        console.log(`[app] ping failed: ${reason}`);
-      });
-  }
-}, 5000);
-
-let messagesReceived = 0;
-let checkMessagesInterval = setInterval(() => {
-  const messages = bridge.pollOutbox();
-  if (messages.length > 0) {
-    messagesReceived += messages.length;
-    for (const payload of messages) {
-      console.log(
-        "[bridge] received message from vignette:",
-        decodePayload(payload),
-      );
-    }
-  }
-}, 30/1000);
-
-//await sleep(8000);
-
-const timeoutDuration = 5000;
-console.log(`[app] setting disconnect timeout for ${timeoutDuration} ms`);
-setTimeout(async () => {
-  console.log("[app] test timeout reached, disconnecting from vignette");
-  clearInterval(checkMessagesInterval);
-  clearInterval(pingInterval);
-  await bridge.disconnect();
-}, 5000);
+await new RemoteApp().run();
