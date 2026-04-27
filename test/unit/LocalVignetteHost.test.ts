@@ -9,7 +9,7 @@ import {
   MessageKind,
   SystemType,
 } from '../../src';
-import { decodeJsonPayload } from '../../examples/codec';
+import { decodeJsonPayload } from '../../examples/common/codec';
 
 class UnitTestVignette extends BaseVignette {
   async init(_initPayload: Uint8Array): Promise<void> {}

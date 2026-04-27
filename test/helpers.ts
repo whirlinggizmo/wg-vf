@@ -1,5 +1,5 @@
 import { decodeEnvelope, SystemType } from '../src';
-import { decodeJsonPayload, encodeJsonPayload } from '../examples/codec';
+import { decodeJsonPayload, encodeJsonPayload } from '../examples/common/codec';
 import type { RemoteVignetteHost } from '../src';
 
 export const TEST_WORKER_URL = new URL('../src/bridge/VignetteBridgeWorker.ts', import.meta.url);
