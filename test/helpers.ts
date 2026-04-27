@@ -1,3 +1,4 @@
+import type { ServerWebSocket } from 'bun';
 import { decodeEnvelope, SystemType, encodeInitPayload } from '../src';
 import { decodeJsonPayload, encodeJsonPayload } from './codec';
 import type { RemoteVignetteHost } from '../src';
@@ -157,9 +158,14 @@ export function startRemoteTestServer(
     },
   });
 
+  const port = server.port;
+  if (!port) {
+    throw new Error('Server failed to start on a port');
+  }
+
   return {
     hostname,
-    port: server.port,
+    port,
     closeConnections(code = 1012, reason = 'test close') {
       for (const ws of activeSockets) {
         ws.close(code, reason);
