@@ -1,5 +1,5 @@
 import { VignetteBridge, type VignetteType } from "../../src";
-import { decodeJsonPayload, encodeJsonPayload } from "../codec/codec";
+import { decodeJsonPayload, encodeJsonPayload } from "../codec/json-codec";
 
 const vignetteType: VignetteType = "js";
 

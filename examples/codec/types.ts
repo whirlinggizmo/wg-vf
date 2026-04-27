@@ -1,5 +1,7 @@
+// Generic payload codec interface
+// Implementations can use JSON, MessagePack, Protobuf, etc.
 
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonObject = { [key: string]: JsonValue };
-export type JsonArray = JsonValue[];
-export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
+export interface PayloadCodec {
+  encodePayload<T>(data: T): Uint8Array;
+  decodePayload<T>(bytes: Uint8Array): T;
+}

@@ -1,5 +1,5 @@
 import type { Vignette } from "../../../src";
-import { decodeJsonPayload } from "../../codec/codec";
+import { decodeJsonPayload } from "../../codec/json-codec";
 
 export default class EchoVignette implements Vignette {
   private readonly outbox: Uint8Array[] = [];
