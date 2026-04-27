@@ -111,7 +111,9 @@ export class RemoteVignetteHost extends BaseVignetteHost {
         await this.onShutdown();
       }
     } catch (err) {
-      await this.onHostError(err);
+      if (!this.isHandledHostError(err)) {
+        await this.onHostError(err);
+      }
     }
   }
 }

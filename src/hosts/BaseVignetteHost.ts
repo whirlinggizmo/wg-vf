@@ -9,6 +9,7 @@ import { encodeErrorPayload, encodeReadyPayload } from '../envelope/systemPayloa
 import { SystemType } from '../envelope/types';
 
 type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
+const HANDLED_HOST_ERROR = Symbol('handledHostError');
 
 export interface BaseVignetteHostOptions {
   vignetteFactory?: () => Vignette | Promise<Vignette>;
@@ -53,27 +54,37 @@ export abstract class BaseVignetteHost implements VignetteHost {
       throw new Error(`Host cannot init in state ${this.state}`);
     }
 
-    this.state = 'INITING';
-    const resolved = this.resolveInitPayload(initPayload);
-    this.currentVignetteType = resolved.vignetteType;
-    this.vignette = await this.instantiateVignette(
-      resolved.vignetteType,
-      resolved.vignetteUrl,
-    );
-    await this.vignette.init(resolved.vignetteInitPayload);
-    await this.onReady(resolved);
-    this.state = 'READY';
-    this.startTickLoop();
-    this.drainOutbox();
-    this.emitSystem(SystemType.Ready, this.createReadyPayload());
+    try {
+      this.state = 'INITING';
+      const resolved = this.resolveInitPayload(initPayload);
+      this.currentVignetteType = resolved.vignetteType;
+      this.vignette = await this.instantiateVignette(
+        resolved.vignetteType,
+        resolved.vignetteUrl,
+      );
+      await this.vignette.init(resolved.vignetteInitPayload);
+      await this.onReady(resolved);
+      this.state = 'READY';
+      this.startTickLoop();
+      this.drainOutbox();
+      this.emitSystem(SystemType.Ready, this.createReadyPayload());
+    } catch (err) {
+      await this.onHostError(err);
+      throw this.markHandledHostError(err);
+    }
   }
 
   async onAppMessage(payload: Uint8Array): Promise<void> {
     if (this.state !== 'READY' || !this.vignette) {
       return;
     }
-    await this.vignette.handleMessage(payload);
-    this.drainOutbox();
+    try {
+      await this.vignette.handleMessage(payload);
+      this.drainOutbox();
+    } catch (err) {
+      await this.onHostError(err);
+      throw this.markHandledHostError(err);
+    }
   }
 
   async onShutdown(): Promise<void> {
@@ -104,6 +115,10 @@ export abstract class BaseVignetteHost implements VignetteHost {
     const message = err instanceof Error ? err.message : String(err);
     this.emitSystem(SystemType.Error, encodeErrorPayload({ message }));
     await this.onShutdown();
+  }
+
+  protected isHandledHostError(err: unknown): boolean {
+    return !!err && typeof err === 'object' && HANDLED_HOST_ERROR in err;
   }
 
   protected async beforeShutdown(): Promise<void> {}
@@ -145,6 +160,16 @@ export abstract class BaseVignetteHost implements VignetteHost {
       return (performance.now() * 1000) >>> 0;
     }
     return (Date.now() * 1000) >>> 0;
+  }
+
+  private markHandledHostError(err: unknown): unknown {
+    if (err && typeof err === 'object') {
+      Object.defineProperty(err, HANDLED_HOST_ERROR, {
+        value: true,
+        configurable: true,
+      });
+    }
+    return err;
   }
 
   private startTickLoop(): void {
