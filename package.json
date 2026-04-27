@@ -37,7 +37,7 @@
     "example:local:watch": "onchange --initial --kill \"examples/vignettes/echo-wasm/out/echo-vignette*\" \"examples/vignettes/echo-js/**\" -- bun run --watch examples/apps/local-app.ts",
     "example:remote:app:watch": "bun run --watch examples/apps/remote-app.ts",
     "example:remote:server:watch": "onchange --initial --kill \"examples/vignettes/echo-wasm/out/echo-vignette*\" \"examples/vignettes/echo-js/**\" -- bun run --watch examples/remote-server.ts",
-    "example:vignette:wasm:build": "cd examples/vignettes/echo-wasm && nim build wasm",
+    "example:vignette:wasm:build": "cd examples/vignettes/echo-wasm && nim build all",
     "example:vignette:wasm:watch": "npm run example:vignette:wasm:build && onchange \"examples/vignettes/echo-wasm/src/**\" -- npm run example:vignette:wasm:build"
   },
   "devDependencies": {
