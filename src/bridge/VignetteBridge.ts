@@ -1,5 +1,5 @@
-import { decodePingPayload, encodePingPayload } from './envelope/systemPayloads';
-import type { VignetteType } from './vignettes/Vignette';
+import { decodePingPayload, encodePingPayload } from '../envelope/systemPayloads';
+import type { VignetteType } from '../vignettes/Vignette';
 
 export interface LocalVignetteBridgeConfig {
   mode: 'local';

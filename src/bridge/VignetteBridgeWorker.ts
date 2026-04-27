@@ -1,10 +1,10 @@
-import { decodeEnvelope } from './envelope/decode';
-import { encodeAppEnvelope, encodeSystemEnvelope } from './envelope/encode';
-import { decodeErrorPayload, decodePingPayload, decodeReadyPayload } from './envelope/systemPayloads';
-import { MessageKind, SystemType } from './envelope/types';
-import { LocalVignetteHost } from './hosts/LocalVignetteHost';
-import { ReconnectingWebSocketTransport } from './transports/ReconnectingWebSocketTransport';
-import type { Transport } from './transports/Transport';
+import { decodeEnvelope } from '../envelope/decode';
+import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
+import { decodeErrorPayload, decodePingPayload, decodeReadyPayload } from '../envelope/systemPayloads';
+import { MessageKind, SystemType } from '../envelope/types';
+import { LocalVignetteHost } from '../hosts/LocalVignetteHost';
+import { ReconnectingWebSocketTransport } from '../transports/ReconnectingWebSocketTransport';
+import type { Transport } from '../transports/Transport';
 import type {
   LocalVignetteBridgeConfig,
   RemoteVignetteBridgeConfig,
@@ -12,7 +12,7 @@ import type {
   VignetteBridgeWorkerMessage,
   VignetteBridgePingResult,
 } from './VignetteBridge';
-import type { VignetteHost } from './hosts/VignetteHost';
+import type { VignetteHost } from '../hosts/VignetteHost';
 
 type RemoteState = 'DISCONNECTED' | 'CONNECTING' | 'READY' | 'ERROR' | 'CLOSED';
 

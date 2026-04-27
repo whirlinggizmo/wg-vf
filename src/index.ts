@@ -8,7 +8,7 @@ export {
   type RemoteVignetteBridgeConfig,
   type VignetteBridgeConfig,
   type VignetteBridgePingResult,
-} from './VignetteBridge';
+} from './bridge/VignetteBridge';
 
 export { WebSocketTransport } from './transports/WebSocketTransport';
 export {
