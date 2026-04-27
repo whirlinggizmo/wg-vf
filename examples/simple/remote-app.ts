@@ -1,5 +1,6 @@
 import { encodePayload } from "../codecs/json-codec";
 import { BaseApp, type RemoteConnectOptions } from "./app-base";
+import { config } from "./config";
 
 class RemoteApp extends BaseApp {
   private pingInterval?: ReturnType<typeof setInterval>;
@@ -11,7 +12,7 @@ class RemoteApp extends BaseApp {
   getConnectOptions(): RemoteConnectOptions {
     return {
       mode: "remote",
-      remoteUrl: "ws://localhost:8787",
+      remoteUrl: config.remoteUrl,
     };
   }
 
