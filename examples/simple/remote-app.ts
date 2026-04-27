@@ -40,7 +40,7 @@ class RemoteApp extends BaseApp {
     }
   }
 
-  getLogPrefix(): string {
+  protected override get logPrefix(): string {
     return "[remote-app]";
   }
 }

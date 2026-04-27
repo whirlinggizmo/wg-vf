@@ -14,7 +14,7 @@ class LocalApp extends BaseApp {
     return encodePayload({ userId: "Bob" });
   }
 
-  getLogPrefix(): string {
+  protected override get logPrefix(): string {
     return "[local-app]";
   }
 }
