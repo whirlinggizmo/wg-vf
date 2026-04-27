@@ -11,8 +11,14 @@ function getVignetteUrl(type: VignetteType): string {
         import.meta.url,
       ).href;
     case "js":
-      return new URL("../vignettes/echo-js/echo-vignette.ts", import.meta.url)
-        .href;
+      return new URL(
+        // use the nim generation of js
+        //"../vignettes/echo-wasm/out/echo-vignette.js",
+        
+        // use the pure ts version
+        "../vignettes/echo-js/echo-vignette.ts",
+        import.meta.url,
+      ).href;
   }
 }
 

@@ -2,7 +2,10 @@ import std/json
 import ./vignette_shared
 
 proc log(message: string) =
-  echo "[vignette (wasm)] ", message
+  when defined(js):
+    echo "[vignette (nim:js)] ", message
+  else:
+    echo "[vignette (nim:wasm)] ", message
 
 proc bytesToString(data: openArray[Byte]): string =
   result = newString(data.len)
