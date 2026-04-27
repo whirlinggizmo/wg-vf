@@ -1,5 +1,6 @@
 import { VignetteBridge, type VignetteType } from "../../src";
-import { decodeJsonPayload, encodeJsonPayload } from "../codec/json-codec";
+// Swap this import to use a different codec (msgpack, protobuf, etc.)
+import { decodePayload, encodePayload } from "../codec/json-codec";
 
 const vignetteType: VignetteType = "wasm";
 
@@ -30,14 +31,14 @@ await bridge.connect({
 });
 
 await bridge.init(
-  encodeJsonPayload({
+  encodePayload({
     vignetteType,
     vignetteUrl: getVignetteUrl(vignetteType),
     initPayload: { userId: "Bob" },
   }),
 );
 
-bridge.handleMessage(encodeJsonPayload({ type: "SpawnPlayer" }));
+bridge.handleMessage(encodePayload({ type: "SpawnPlayer" }));
 
 let pingInterval = setInterval(() => {
   if (bridge.isConnected()) {
@@ -60,7 +61,7 @@ let checkMessagesInterval = setInterval(() => {
     for (const payload of messages) {
       console.log(
         "[bridge] received message from vignette:",
-        decodeJsonPayload(payload),
+        decodePayload(payload),
       );
     }
   }

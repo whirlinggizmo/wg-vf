@@ -1,5 +1,6 @@
 import type { Vignette } from "../../../src";
-import { decodeJsonPayload } from "../../codec/json-codec";
+// Swap this import to use a different codec (msgpack, protobuf, etc.)
+import { decodePayload } from "../../codec/json-codec";
 
 export default class EchoVignette implements Vignette {
   private readonly outbox: Uint8Array[] = [];
@@ -8,7 +9,7 @@ export default class EchoVignette implements Vignette {
     // no-op for example
 
     // assume it's json?
-    console.log("[vignette (js)] init: ", decodeJsonPayload(payload));
+    console.log("[vignette (js)] init: ", decodePayload(payload));
   }
 
   async tick(_dtUs: number, _frameId: number): Promise<void> {
@@ -22,7 +23,7 @@ export default class EchoVignette implements Vignette {
   }
 
   async handleMessage(payload: Uint8Array): Promise<void> {
-    console.log("[vignette (js)] received message: ", decodeJsonPayload(payload));
+    console.log("[vignette (js)] received message: ", decodePayload(payload));
 
     // echo it back
     this.outbox.push(payload.slice());
