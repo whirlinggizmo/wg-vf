@@ -1,8 +1,15 @@
-import { type VignetteType, isVignetteType } from '../vignettes/Vignette';
+import type { VignetteType } from '../vignettes/Vignette';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-const PING_PAYLOAD_SIZE = 12;
+
+// Payload sizes
+const PING_PAYLOAD_SIZE = 12; // sequence: u32 + sentAtMs: f64
+const READY_PAYLOAD_SIZE = 2; // ready: u8 + vignetteType: u8
+
+// Vignette type enum values for binary encoding
+const VIGNETTE_TYPE_JS = 0;
+const VIGNETTE_TYPE_WASM = 1;
 
 export interface ReadyPayload {
   ready: boolean;
@@ -19,68 +26,121 @@ export interface PingPayload {
   sentAtMs: number;
 }
 
-function encodeJson(payload: unknown): Uint8Array {
-  return textEncoder.encode(JSON.stringify(payload));
+function vignetteTypeToByte(type: VignetteType): number {
+  return type === 'js' ? VIGNETTE_TYPE_JS : VIGNETTE_TYPE_WASM;
 }
 
-function decodeJson(payload: Uint8Array): unknown | null {
-  if (payload.length === 0) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(textDecoder.decode(payload));
-  } catch {
-    return null;
-  }
+function byteToVignetteType(byte: number): VignetteType | null {
+  if (byte === VIGNETTE_TYPE_JS) return 'js';
+  if (byte === VIGNETTE_TYPE_WASM) return 'wasm';
+  return null;
 }
+
+function encodeLengthPrefixedString(str: string): Uint8Array {
+  const bytes = textEncoder.encode(str);
+  const result = new Uint8Array(4 + bytes.length);
+  const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+  view.setUint32(0, bytes.length, true);
+  result.set(bytes, 4);
+  return result;
+}
+
+function decodeLengthPrefixedString(
+  payload: Uint8Array,
+  offset: number,
+): { str: string; nextOffset: number } | null {
+  if (payload.length < offset + 4) {
+    return null;
+  }
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const length = view.getUint32(offset, true);
+  if (payload.length < offset + 4 + length) {
+    return null;
+  }
+  const bytes = payload.slice(offset + 4, offset + 4 + length);
+  return { str: textDecoder.decode(bytes), nextOffset: offset + 4 + length };
+}
+
+// Ready payload binary format:
+// byte 0: ready flag (0 or 1)
+// byte 1: vignette type (0 = js, 1 = wasm)
 
 export function encodeReadyPayload(payload: ReadyPayload): Uint8Array {
-  return encodeJson(payload);
+  const bytes = new Uint8Array(READY_PAYLOAD_SIZE);
+  bytes[0] = payload.ready ? 1 : 0;
+  bytes[1] = vignetteTypeToByte(payload.vignetteType);
+  return bytes;
 }
 
 export function decodeReadyPayload(payload: Uint8Array): ReadyPayload | null {
-  const parsed = decodeJson(payload);
-  if (!parsed || typeof parsed !== 'object') {
+  if (payload.length !== READY_PAYLOAD_SIZE) {
     return null;
   }
 
-  const candidate = parsed as Partial<ReadyPayload>;
-  if (typeof candidate.ready !== 'boolean') {
+  const ready = payload[0] === 1;
+  const vignetteType = byteToVignetteType(payload[1]);
+
+  if (vignetteType === null) {
     return null;
   }
 
-  if (!isVignetteType(candidate.vignetteType)) {
-    return null;
-  }
-
-  return { ready: candidate.ready, vignetteType: candidate.vignetteType };
+  return { ready, vignetteType };
 }
 
+// Error payload binary format:
+// bytes 0-3: message length (u32 LE)
+// bytes 4..(4+messageLen-1): message UTF-8 bytes
+// byte (4+messageLen): hasCode flag (u8: 0 or 1)
+// if hasCode:
+//   bytes (5+messageLen)..(5+messageLen+3): code length (u32 LE)
+//   bytes (9+messageLen)..: code UTF-8 bytes
+
 export function encodeErrorPayload(payload: ErrorPayload): Uint8Array {
-  return encodeJson(payload);
+  const messageBytes = encodeLengthPrefixedString(payload.message);
+
+  if (payload.code === undefined) {
+    const result = new Uint8Array(messageBytes.length + 1);
+    result.set(messageBytes, 0);
+    result[messageBytes.length] = 0; // hasCode = false
+    return result;
+  }
+
+  const codeBytes = encodeLengthPrefixedString(payload.code);
+  const result = new Uint8Array(messageBytes.length + 1 + codeBytes.length);
+  result.set(messageBytes, 0);
+  result[messageBytes.length] = 1; // hasCode = true
+  result.set(codeBytes, messageBytes.length + 1);
+  return result;
 }
 
 export function decodeErrorPayload(payload: Uint8Array): ErrorPayload | null {
-  const parsed = decodeJson(payload);
-  if (!parsed || typeof parsed !== 'object') {
+  const messageResult = decodeLengthPrefixedString(payload, 0);
+  if (messageResult === null) {
     return null;
   }
 
-  const candidate = parsed as Partial<ErrorPayload>;
-  if (typeof candidate.message !== 'string') {
+  const { str: message, nextOffset } = messageResult;
+
+  if (payload.length < nextOffset + 1) {
     return null;
   }
 
-  if (candidate.code !== undefined && typeof candidate.code !== 'string') {
+  const hasCode = payload[nextOffset] === 1;
+  if (!hasCode) {
+    return { message };
+  }
+
+  const codeResult = decodeLengthPrefixedString(payload, nextOffset + 1);
+  if (codeResult === null) {
     return null;
   }
 
-  return {
-    message: candidate.message,
-    code: candidate.code,
-  };
+  return { message, code: codeResult.str };
 }
+
+// Ping payload binary format (unchanged):
+// bytes 0-3: sequence (u32 LE)
+// bytes 4-11: sentAtMs (f64 LE)
 
 export function encodePingPayload(payload: PingPayload): Uint8Array {
   const bytes = new Uint8Array(PING_PAYLOAD_SIZE);

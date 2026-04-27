@@ -1,4 +1,4 @@
-export const ENVELOPE_VERSION = 1;
+export const ENVELOPE_VERSION = 2;
 
 export enum MessageKind {
   System = 1,

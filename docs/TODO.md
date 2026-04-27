@@ -5,7 +5,7 @@
 - Keep the boundary between `VignetteBridgeWorker` and `LocalVignetteHost` clear so the worker stays focused on session/RPC orchestration and the host stays focused on vignette lifecycle ownership.
 - ~~Review local versus remote message-flow symmetry and decide where differences are intentional versus accidental.~~ ✅ Done - see [message_flow_symmetry_analysis.md](./message_flow_symmetry_analysis.md)
 - ~~Add lifecycle and failure-path tests for init, shutdown, reconnect, outbox draining, and host error handling.~~ ✅ Done
-- Low priority: consider normalizing all system payloads to binary instead of keeping `Ready` and `Error` as JSON while `Ping`/`Pong` are binary.
+- ~~Low priority: consider normalizing all system payloads to binary instead of keeping `Ready` and `Error` as JSON while `Ping`/`Pong` are binary.~~ ✅ Done - ENVELOPE_VERSION bumped to 2
 
 ## Suggested Order
 

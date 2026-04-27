@@ -179,7 +179,7 @@ Rules:
 The framework transport envelope is binary.
 
 Header layout:
-- byte `0`: `version: u8`
+- byte `0`: `version: u8` (current version is 2)
 - byte `1`: `messageKind: u8`
 - bytes `2-3`: `systemType: u16` little-endian
 - bytes `4-7`: `payloadLen: u32` little-endian
@@ -239,12 +239,20 @@ Remote `Init` payload currently contains JSON with:
 ### Ready
 - host to bridge
 - indicates successful vignette initialization
-- payload currently JSON: `{ ready: boolean, vignetteType: 'js' | 'wasm' }`
+- binary payload (2 bytes):
+  - byte `0`: `ready: u8` (0 or 1)
+  - byte `1`: `vignetteType: u8` (0 = js, 1 = wasm)
 
 ### Error
 - host to bridge
 - indicates host or vignette failure
-- payload currently JSON: `{ message: string, code?: string }`
+- binary payload (variable length):
+  - bytes `0-3`: `messageLen: u32` little-endian
+  - bytes `4..(4+messageLen-1)`: message UTF-8 bytes
+  - byte `(4+messageLen)`: `hasCode: u8` (0 or 1)
+  - if `hasCode` is 1:
+    - bytes `(5+messageLen)..(5+messageLen+3)`: `codeLen: u32` little-endian
+    - bytes `(9+messageLen)..`: code UTF-8 bytes
 
 ### Shutdown
 - bridge to host
@@ -318,8 +326,7 @@ pending remote init or ping operations.
 
 - App payload encoding is app-specific. JSON is only an example choice.
 - Vignette-to-app payloads are opaque bytes.
-- The framework currently uses JSON for `Ready`, `Error`, and host-side init
-  bootstrap parsing.
+- The framework currently uses JSON for host-side init bootstrap parsing.
 - `ping()` is a first-class bridge API.
 - Local `ping()` currently measures bridge-to-worker RTT.
 - Remote `ping()` measures worker, transport, and remote host echo RTT.
