@@ -12,7 +12,7 @@ class RemoteApp extends BaseApp {
   getConnectOptions(): RemoteConnectOptions {
     return {
       mode: "remote",
-      remoteUrl: config.remoteUrl,
+      remoteUrl: config.remoteUrl ?? "ws://localhost:8787",
     };
   }
 

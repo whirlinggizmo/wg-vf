@@ -38,7 +38,7 @@ export abstract class BaseApp {
   }
 
   protected get vignetteType(): VignetteType {
-    return config.vignetteType;
+    return config.vignetteType ?? "js";
   }
 
   abstract getConnectOptions(): LocalConnectOptions | RemoteConnectOptions;
