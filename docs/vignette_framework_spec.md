@@ -1,5 +1,9 @@
 # Vignette Framework Spec
 
+See also:
+
+- [Vignette Runtime ABI](./vignette_runtime_abi.md) for the host-neutral runtime contract behind the current WASM path and future non-TypeScript hosts.
+
 ## Goal
 
 Let an app talk to isolated vignette logic through one bridge API while the
@@ -91,9 +95,14 @@ export interface VignetteBridge {
   handleMessage(payload: Uint8Array): Promise<void>;
 
   ping(): Promise<VignetteBridgePingResult>;
+  isConnected(): boolean;
   pollOutbox(): Uint8Array[];
 }
 ```
+
+`isConnected()` means the bridge currently has a usable connection to the hosted
+vignette. In remote mode, it is `false` while connecting or reconnecting and
+becomes `true` only after the remote host reports `Ready`.
 
 ### Bridge Config
 
@@ -106,7 +115,7 @@ export type VignetteBridgeConfig =
     }
   | {
       mode: 'remote';
-      url: string;
+      remoteUrl: string;
     };
 ```
 
@@ -278,8 +287,8 @@ export interface VignetteBridgePingResult {
 
 ### Remote Mode
 1. App creates `VignetteBridge`.
-2. App calls `connect({ mode: 'remote', url })`.
-3. Bridge opens `ReconnectingWebSocketTransport`.
+2. App calls `connect({ mode: 'remote', remoteUrl })`.
+3. Bridge creates `VignetteBridgeWorker`, and the worker opens `ReconnectingWebSocketTransport`.
 4. App calls `init(payload)`.
 5. Remote host resolves vignette selection from the init payload.
 6. Remote host instantiates the vignette and calls `vignette.init(...)`.
@@ -313,4 +322,4 @@ pending remote init or ping operations.
   bootstrap parsing.
 - `ping()` is a first-class bridge API.
 - Local `ping()` currently measures bridge-to-worker RTT.
-- Remote `ping()` measures transport plus remote host echo RTT.
+- Remote `ping()` measures worker, transport, and remote host echo RTT.

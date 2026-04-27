@@ -1,9 +1,4 @@
-import { decodeEnvelope } from './envelope/decode';
-import { encodeAppEnvelope, encodeSystemEnvelope } from './envelope/encode';
-import { decodeErrorPayload, decodePingPayload, decodeReadyPayload, encodePingPayload } from './envelope/systemPayloads';
-import { MessageKind, SystemType } from './envelope/types';
-import { ReconnectingWebSocketTransport } from './transports/ReconnectingWebSocketTransport';
-import type { Transport } from './transports/Transport';
+import { decodePingPayload, encodePingPayload } from './envelope/systemPayloads';
 import type { VignetteType } from './Vignette';
 
 export interface LocalVignetteBridgeConfig {
@@ -84,12 +79,18 @@ export interface VignetteBridgeAsyncErrorEvent {
   message: string;
 }
 
+export interface VignetteBridgeConnectionStateEvent {
+  type: 'connection';
+  connected: boolean;
+}
+
 export type VignetteBridgeWorkerMessage =
   | VignetteBridgeSuccessResponse
   | VignetteBridgeErrorResponse
   | VignetteBridgePongResponse
   | VignetteBridgeOutboxEvent
-  | VignetteBridgeAsyncErrorEvent;
+  | VignetteBridgeAsyncErrorEvent
+  | VignetteBridgeConnectionStateEvent;
 
 export interface VignetteBridgePingResult {
   sequence: number;
@@ -103,47 +104,21 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
-interface PendingRemoteInit {
-  resolve: () => void;
-  reject: (error: Error) => void;
-}
-
-interface PendingRemotePing {
-  resolve: (result: VignetteBridgePingResult) => void;
-  reject: (error: Error) => void;
-}
-
-type RemoteState = 'DISCONNECTED' | 'CONNECTING' | 'READY' | 'ERROR' | 'CLOSED';
-
 export class VignetteBridge {
   private readonly workerUrl: URL;
   private worker: Worker | null = null;
   private nextRequestId = 1;
   private nextPingSequence = 1;
   private readonly pending = new Map<number, PendingRequest>();
-  private readonly pendingRemotePings = new Map<number, PendingRemotePing>();
   private readonly outbox: Uint8Array[] = [];
-
-  private transport: Transport | null = null;
-  private remoteState: RemoteState = 'DISCONNECTED';
-  private lastInitPayload: Uint8Array | null = null;
-  private pendingRemoteInit: PendingRemoteInit | null = null;
-  private unbindBytes: (() => void) | null = null;
-  private unbindTransportError: (() => void) | null = null;
-  private unbindTransportDisconnect: (() => void) | null = null;
-  private unbindTransportReconnect: (() => void) | null = null;
+  private connected = false;
 
   constructor(workerUrl: URL = new URL('./VignetteBridgeWorker.js', import.meta.url)) {
     this.workerUrl = workerUrl;
   }
 
   async connect(config: VignetteBridgeConfig): Promise<void> {
-    if (config.mode === 'remote') {
-      await this.connectRemote(config.remoteUrl);
-      return;
-    }
-
-    if (this.worker || this.transport) {
+    if (this.worker) {
       throw new Error('Vignette bridge is already connected');
     }
 
@@ -157,6 +132,7 @@ export class VignetteBridge {
     };
 
     this.worker = worker;
+    this.connected = false;
     this.outbox.length = 0;
 
     try {
@@ -173,12 +149,8 @@ export class VignetteBridge {
   }
 
   async disconnect(): Promise<void> {
-    if (this.transport) {
-      await this.disconnectRemote();
-      return;
-    }
-
     if (!this.worker) {
+      this.connected = false;
       this.outbox.length = 0;
       return;
     }
@@ -195,6 +167,7 @@ export class VignetteBridge {
         worker,
       );
     } finally {
+      this.connected = false;
       worker.terminate();
       this.rejectAll(new Error('Vignette bridge disconnected'));
       this.outbox.length = 0;
@@ -202,11 +175,6 @@ export class VignetteBridge {
   }
 
   async init(payload: Uint8Array): Promise<void> {
-    if (this.transport) {
-      await this.initRemote(payload);
-      return;
-    }
-
     await this.requestWithPayload({
       id: this.allocateRequestId(),
       method: 'init',
@@ -215,15 +183,6 @@ export class VignetteBridge {
   }
 
   async handleMessage(payload: Uint8Array): Promise<void> {
-    if (this.transport) {
-      const transport = this.requireTransport();
-      if (this.remoteState !== 'READY') {
-        throw new Error(`Cannot send app message while in state ${this.remoteState}`);
-      }
-      transport.send(encodeAppEnvelope(payload.slice()));
-      return;
-    }
-
     await this.requestWithPayload({
       id: this.allocateRequestId(),
       method: 'handleMessage',
@@ -235,10 +194,6 @@ export class VignetteBridge {
     const sequence = this.nextPingSequence++ >>> 0;
     const sentAtMs = this.nowMs();
     const payload = encodePingPayload({ sequence, sentAtMs });
-
-    if (this.transport) {
-      return await this.pingRemote(payload);
-    }
 
     const pongPayload = await this.requestWithPayload({
       id: this.allocateRequestId(),
@@ -260,206 +215,20 @@ export class VignetteBridge {
     };
   }
 
+  /**
+   * Returns true only when the bridge currently has a usable connection to the
+   * hosted vignette. In remote mode this remains false until the remote host
+   * reports Ready, and becomes false again during reconnecting, error, or
+   * closed states.
+   */
+  isConnected(): boolean {
+    return this.connected;
+  }
+
   pollOutbox(): Uint8Array[] {
     const drained = this.outbox.slice();
     this.outbox.length = 0;
     return drained;
-  }
-
-  private async connectRemote(url: string): Promise<void> {
-    if (this.worker || this.transport) {
-      throw new Error('Vignette bridge is already connected');
-    }
-
-    const transport = new ReconnectingWebSocketTransport({ url });
-    this.transport = transport;
-    this.remoteState = 'CONNECTING';
-    this.outbox.length = 0;
-
-    this.unbindBytes = transport.onBytes((bytes) => {
-      void this.handleRemoteBytes(bytes);
-    });
-
-    if (transport.onError) {
-      this.unbindTransportError = transport.onError((err) => {
-        this.remoteState = 'ERROR';
-        this.pendingRemoteInit?.reject(err);
-        this.pendingRemoteInit = null;
-        this.rejectPendingRemotePings(err);
-        console.error('[wg-vf] bridge transport error:', err);
-      });
-    }
-
-    if (transport.onDisconnect) {
-      this.unbindTransportDisconnect = transport.onDisconnect(() => {
-        if (this.remoteState === 'READY') {
-          this.remoteState = 'CONNECTING';
-        }
-      });
-    }
-
-    if (transport.onReconnect) {
-      this.unbindTransportReconnect = transport.onReconnect(() => {
-        void this.reinitializeAfterReconnect();
-      });
-    }
-
-    try {
-      await transport.open();
-    } catch (err) {
-      this.unbindRemoteTransport();
-      this.transport = null;
-      this.remoteState = 'ERROR';
-      throw err;
-    }
-  }
-
-  private async disconnectRemote(): Promise<void> {
-    const transport = this.transport;
-    this.transport = null;
-
-    if (!transport) {
-      this.outbox.length = 0;
-      this.lastInitPayload = null;
-      this.pendingRemoteInit = null;
-      this.remoteState = 'CLOSED';
-      return;
-    }
-
-    try {
-      if (
-        this.remoteState === 'READY' ||
-        this.remoteState === 'CONNECTING' ||
-        this.remoteState === 'ERROR'
-      ) {
-        try {
-          transport.send(encodeSystemEnvelope(SystemType.Shutdown));
-        } catch {
-          // no-op
-        }
-      }
-    } finally {
-      transport.close();
-      this.pendingRemoteInit?.reject(new Error('Vignette bridge disconnected'));
-      this.pendingRemoteInit = null;
-      this.rejectPendingRemotePings(new Error('Vignette bridge disconnected'));
-      this.unbindRemoteTransport();
-      this.outbox.length = 0;
-      this.lastInitPayload = null;
-      this.remoteState = 'CLOSED';
-    }
-  }
-
-  private async initRemote(payload: Uint8Array): Promise<void> {
-    const transport = this.requireTransport();
-    this.remoteState = 'CONNECTING';
-    this.lastInitPayload = payload.slice();
-
-    await new Promise<void>((resolve, reject) => {
-      this.pendingRemoteInit = { resolve, reject };
-      transport.send(encodeSystemEnvelope(SystemType.Init, payload.slice()));
-    });
-  }
-
-  private async pingRemote(payload: Uint8Array): Promise<VignetteBridgePingResult> {
-    const transport = this.requireTransport();
-    const decoded = decodePingPayload(payload);
-    if (!decoded) {
-      throw new Error('Invalid ping payload');
-    }
-
-    return await new Promise<VignetteBridgePingResult>((resolve, reject) => {
-      this.pendingRemotePings.set(decoded.sequence, { resolve, reject });
-      transport.send(encodeSystemEnvelope(SystemType.Ping, payload.slice()));
-    });
-  }
-
-  private async handleRemoteBytes(bytes: Uint8Array): Promise<void> {
-    try {
-      const envelope = decodeEnvelope(bytes);
-
-      if (envelope.messageKind === MessageKind.App) {
-        this.outbox.push(envelope.payload);
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Ready) {
-        const readyPayload = decodeReadyPayload(envelope.payload);
-        const ready = readyPayload?.ready ?? true;
-        this.remoteState = ready ? 'READY' : 'CONNECTING';
-        if (ready) {
-          this.pendingRemoteInit?.resolve();
-          this.pendingRemoteInit = null;
-        }
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Ping) {
-        this.requireTransport().send(encodeSystemEnvelope(SystemType.Pong, envelope.payload.slice()));
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Pong) {
-        const payload = decodePingPayload(envelope.payload);
-        if (!payload) {
-          throw new Error('Received invalid pong payload');
-        }
-        const pendingPing = this.pendingRemotePings.get(payload.sequence);
-        if (!pendingPing) {
-          return;
-        }
-        this.pendingRemotePings.delete(payload.sequence);
-        const receivedAtMs = this.nowMs();
-        pendingPing.resolve({
-          sequence: payload.sequence,
-          sentAtMs: payload.sentAtMs,
-          receivedAtMs,
-          rttMs: receivedAtMs - payload.sentAtMs,
-        });
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Error) {
-        const errorPayload = decodeErrorPayload(envelope.payload);
-        const message =
-          errorPayload?.message ||
-          new TextDecoder().decode(envelope.payload) ||
-          'Host reported error';
-        this.remoteState = 'ERROR';
-        const error = new Error(message);
-        this.pendingRemoteInit?.reject(error);
-        this.pendingRemoteInit = null;
-        this.rejectPendingRemotePings(error);
-        throw error;
-      }
-    } catch (err) {
-      this.remoteState = 'ERROR';
-      throw err instanceof Error ? err : new Error(String(err));
-    }
-  }
-
-  private async reinitializeAfterReconnect(): Promise<void> {
-    if (!this.transport || !this.lastInitPayload) {
-      return;
-    }
-
-    if (this.remoteState === 'CLOSED' || this.remoteState === 'DISCONNECTED') {
-      return;
-    }
-
-    this.remoteState = 'CONNECTING';
-    this.transport.send(encodeSystemEnvelope(SystemType.Init, this.lastInitPayload.slice()));
-  }
-
-  private unbindRemoteTransport(): void {
-    this.unbindBytes?.();
-    this.unbindTransportError?.();
-    this.unbindTransportDisconnect?.();
-    this.unbindTransportReconnect?.();
-    this.unbindBytes = null;
-    this.unbindTransportError = null;
-    this.unbindTransportDisconnect = null;
-    this.unbindTransportReconnect = null;
   }
 
   private async requestWithPayload(
@@ -496,7 +265,13 @@ export class VignetteBridge {
     }
 
     if (message.type === 'error') {
+      this.connected = false;
       console.error('[wg-vf] bridge host error:', new Error(message.message));
+      return;
+    }
+
+    if (message.type === 'connection') {
+      this.connected = message.connected;
       return;
     }
 
@@ -518,17 +293,9 @@ export class VignetteBridge {
   }
 
   private rejectAll(error: Error): void {
+    this.connected = false;
     const entries = Array.from(this.pending.values());
     this.pending.clear();
-    for (const pending of entries) {
-      pending.reject(error);
-    }
-    this.rejectPendingRemotePings(error);
-  }
-
-  private rejectPendingRemotePings(error: Error): void {
-    const entries = Array.from(this.pendingRemotePings.values());
-    this.pendingRemotePings.clear();
     for (const pending of entries) {
       pending.reject(error);
     }
@@ -539,13 +306,6 @@ export class VignetteBridge {
       throw new Error('Vignette bridge is not connected');
     }
     return this.worker;
-  }
-
-  private requireTransport(): Transport {
-    if (!this.transport) {
-      throw new Error('Vignette bridge is not connected');
-    }
-    return this.transport;
   }
 
   private allocateRequestId(): number {

@@ -1,9 +1,8 @@
 import { type Vignette, type VignetteType, instantiateVignetteFromModuleUrl, isVignetteType } from '../Vignette';
 import type { VignetteHost } from '../VignetteHost';
-import { decodeEnvelope } from '../envelope/decode';
 import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
 import { encodeErrorPayload, encodeReadyPayload } from '../envelope/systemPayloads';
-import { MessageKind, SystemType } from '../envelope/types';
+import { SystemType } from '../envelope/types';
 
 type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
 
@@ -38,18 +37,6 @@ export class LocalVignetteHost implements VignetteHost {
     this.currentVignetteType = this.defaultVignetteType;
     this.fixedStepUs = (options.fixedStepUs ?? 16_666) >>> 0;
     this.maxSubsteps = (options.maxSubsteps ?? 4) >>> 0;
-  }
-
-  attachToWorker(workerScope: DedicatedWorkerGlobalScope): void {
-    this.setSendBytes((bytes) => {
-      workerScope.postMessage(bytes, [bytes.buffer]);
-    });
-
-    workerScope.onmessage = (event: MessageEvent<ArrayBuffer | Uint8Array>) => {
-      const data = event.data;
-      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-      void this.handleIncomingBytes(bytes);
-    };
   }
 
   setSendBytes(fn: (bytes: Uint8Array) => void): void {
@@ -98,33 +85,6 @@ export class LocalVignetteHost implements VignetteHost {
 
     this.vignette = null;
     this.state = 'CLOSED';
-  }
-
-  private async handleIncomingBytes(bytes: Uint8Array): Promise<void> {
-    try {
-      const envelope = decodeEnvelope(bytes);
-
-      if (envelope.messageKind === MessageKind.App) {
-        await this.onAppMessage(envelope.payload);
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Init) {
-        await this.onInit(envelope.payload);
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Ping) {
-        this.emitSystem(SystemType.Pong, envelope.payload);
-        return;
-      }
-
-      if (envelope.systemType === SystemType.Shutdown) {
-        await this.onShutdown();
-      }
-    } catch (err) {
-      await this.handleHostError(err);
-    }
   }
 
   private startTickLoop(): void {

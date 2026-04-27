@@ -85,9 +85,15 @@ export interface VignetteBridge {
   handleMessage(payload: Uint8Array): Promise<void>;
 
   ping(): Promise<VignetteBridgePingResult>;
+  isConnected(): boolean;
   pollOutbox(): Uint8Array[];
 }
 ```
+
+`isConnected()` returns `true` only when the bridge currently has a usable
+connection to the hosted vignette. In remote mode, this becomes `true` after the
+remote host reports `Ready`, and `false` during reconnecting, error, or closed
+states.
 
 ### Bridge config
 
@@ -100,7 +106,7 @@ export type VignetteBridgeConfig =
     }
   | {
       mode: 'remote';
-      url: string;
+      remoteUrl: string;
     };
 ```
 
@@ -140,7 +146,7 @@ const bridge = new VignetteBridge();
 
 await bridge.connect({
   mode: 'remote',
-  url: 'ws://localhost:8787',
+  remoteUrl: 'ws://localhost:8787',
 });
 
 await bridge.init(
