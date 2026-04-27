@@ -1,6 +1,7 @@
-export { isVignetteType } from './Vignette';
-export type { Vignette, VignetteType } from './Vignette';
-export type { VignetteHost } from './VignetteHost';
+export { isVignetteType } from './vignettes/Vignette';
+export type { Vignette, VignetteType } from './vignettes/Vignette';
+export { BaseVignette } from './vignettes/BaseVignette';
+export type { VignetteHost } from './hosts/VignetteHost';
 export {
   VignetteBridge,
   type LocalVignetteBridgeConfig,
@@ -18,8 +19,8 @@ export {
 export { LocalVignetteHost } from './hosts/LocalVignetteHost';
 export { RemoteVignetteHost } from './hosts/RemoteVignetteHost';
 
-export type { WasmVignetteInstance, WasmVignetteOptions } from './WasmVignette';
-export { createWasmInstance } from './WasmVignette';
+export type { WasmVignetteInstance, WasmVignetteOptions } from './vignettes/WasmVignette';
+export { createWasmInstance } from './vignettes/WasmVignette';
 
 export {
   ENVELOPE_VERSION,

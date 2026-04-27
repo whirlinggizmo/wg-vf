@@ -117,7 +117,7 @@ message it writes the new `head` value back into the ring header.
 This layout is implemented in:
 
 - [examples/vignettes/echo-wasm/src/vignette_shared.nim](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/examples/vignettes/echo-wasm/src/vignette_shared.nim:1)
-- [src/WasmVignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/WasmVignette.ts:181)
+- [src/vignettes/WasmVignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/vignettes/WasmVignette.ts:181)
 
 ## Required and Optional Exports
 
@@ -183,7 +183,7 @@ entry point.
 
 Current TypeScript host behavior prefers allocator-based staging and falls back
 to a fixed staging region if present. See
-[src/WasmVignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/WasmVignette.ts:118).
+[src/vignettes/WasmVignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/vignettes/WasmVignette.ts:118).
 
 ## Return Codes
 
@@ -317,8 +317,8 @@ When implementing a new host:
 
 ## Current Code References
 
-- [src/Vignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/Vignette.ts:22)
-- [src/WasmVignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/WasmVignette.ts:1)
+- [src/vignettes/Vignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/vignettes/Vignette.ts:22)
+- [src/vignettes/WasmVignette.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/vignettes/WasmVignette.ts:1)
 - [src/hosts/LocalVignetteHost.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/hosts/LocalVignetteHost.ts:18)
 - [src/hosts/RemoteVignetteHost.ts](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/src/hosts/RemoteVignetteHost.ts:30)
 - [examples/vignettes/echo-wasm/src/vignette_shared.nim](/home/rknopf/projects/whirlinggizmo/packages/wg-vf/examples/vignettes/echo-wasm/src/vignette_shared.nim:1)

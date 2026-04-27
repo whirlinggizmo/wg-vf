@@ -12,7 +12,7 @@ import type {
   VignetteBridgeWorkerMessage,
   VignetteBridgePingResult,
 } from './VignetteBridge';
-import type { VignetteHost } from './VignetteHost';
+import type { VignetteHost } from './hosts/VignetteHost';
 
 type RemoteState = 'DISCONNECTED' | 'CONNECTING' | 'READY' | 'ERROR' | 'CLOSED';
 
