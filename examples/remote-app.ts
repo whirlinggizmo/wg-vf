@@ -16,9 +16,11 @@ function getVignetteUrl(type: VignetteType): string {
   }
 }
 
+/*
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+*/
 
 const bridge = new VignetteBridge();
 
@@ -38,11 +40,16 @@ await bridge.init(
 bridge.handleMessage(encodeJsonPayload({ type: "SpawnPlayer" }));
 
 let pingInterval = setInterval(() => {
-  bridge.ping().then((result) => {
-    console.log(
-      `[bridge] ping: ${result.rttMs}ms`,
-    );
-  });
+  if (bridge.isConnected()) {
+    bridge
+      .ping()
+      .then((result) => {
+        console.log(`[bridge] ping: ${result.rttMs}ms`);
+      })
+      .catch((reason) => {
+        console.log(`[app] ping failed: ${reason}`);
+      });
+  }
 }, 5000);
 
 let messagesReceived = 0;
@@ -57,13 +64,15 @@ let checkMessagesInterval = setInterval(() => {
       );
     }
   }
-}, 100);
+}, 30/1000);
 
-await sleep(8000);
+//await sleep(8000);
 
-console.log("[bridge] timeout reached, disconnecting from vignette");
-clearInterval(checkMessagesInterval);
-clearInterval(pingInterval);
-console.log("[bridge] disconnecting from vignette");
-await bridge.disconnect();
-console.log("[bridge] disconnected");
+const timeoutDuration = 5000;
+console.log(`[app] setting disconnect timeout for ${timeoutDuration} ms`);
+setTimeout(async () => {
+  console.log("[app] test timeout reached, disconnecting from vignette");
+  clearInterval(checkMessagesInterval);
+  clearInterval(pingInterval);
+  await bridge.disconnect();
+}, 5000);

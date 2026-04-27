@@ -1,4 +1,3 @@
-
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -10,9 +9,9 @@
     "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "esModuleInterop": false,
     "resolveJsonModule": false,
     "lib": ["ES2022", "DOM", "WebWorker"],
-    "noEmit": true
+    "noEmit": true,
+    "types": ["bun"]
   }
 }
