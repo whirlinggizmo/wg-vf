@@ -254,6 +254,6 @@ Input staging is supported via either:
 ## Examples
 
 See:
-- [`examples/local-app.ts`](./examples/local-app.ts)
-- [`examples/remote-app.ts`](./examples/remote-app.ts)
+- [`examples/apps/local-app.ts`](./examples/apps/local-app.ts)
+- [`examples/apps/remote-app.ts`](./examples/apps/remote-app.ts)
 - [`examples/remote-server.ts`](./examples/remote-server.ts)
