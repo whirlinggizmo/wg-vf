@@ -9,7 +9,7 @@ when declared(switch):
   switch("hints", "off")
   switch("verbosity", "1") # disable verbose output
 
-  const buildTypes = @["js", "wasm", "c", "cpp", "all"]
+  const buildTypes = @["js", "wasm", "so", "c", "cpp", "all"]
   const outDir = "./out"
   const vignetteName = "simple-vignette"
   const mainEntryFile = "src/main.nim"
@@ -108,9 +108,22 @@ when declared(switch):
     switch("passL", "-sEXPORTED_FUNCTIONS=[\"_vf_init\",\"_vf_tick\",\"_vf_fixed_tick\",\"_vf_handle_message\",\"_vf_shutdown\",\"_vf_outbox_offset\",\"_vf_outbox_capacity\",\"_vf_mem_alloc\",\"_vf_mem_free\",\"_malloc\",\"_free\",\"_main\"]")
     switch("passL", "-Oz") # Optimization, can be re-enabled later
 
+  when defined(so):
+    echo "Configuring " & vignetteName & " for Shared Library (SO)"
+
+    configureCommon(vignetteName)
+
+    let outFilename = "lib" & vignetteName.toLower() & ".so"
+    ensureDirExists(outDir)
+
+    switch("app", "lib")
+    switch("out", outDir & "/" & outFilename)
+    switch("define", "so")
+    switch("mm", "arc")
+
   proc printUsage() =
 
-    echo "Usage: nim build [js|wasm|c|cpp|all]"
+    echo "Usage: nim build [js|wasm|so|c|cpp|all]"
     echo "       nim clean"
     echo ""
     echo "If no build type is provided, builds 'all' (js + wasm)"
@@ -133,6 +146,9 @@ when declared(switch):
       of "wasm":
         commandType = "c"
         commandDefines.add("emscripten")
+      of "so":
+        commandType = "c"
+        commandDefines.add("so")
       of "c":
         echo "Refusing to build for C, this probably isn't what you want."
         return false
@@ -215,6 +231,7 @@ when declared(switch):
       let wasmHash = wasmJs & ".hash"
       let wasmFile = outDir & "/" & vignetteName.toLower() & "_wasm.wasm"
       let wasmOptFile = outDir & "/" & vignetteName.toLower() & "_wasm.opt.wasm"
+      let soFile = outDir & "/lib" & vignetteName.toLower() & ".so"
 
       var cmd = "rm -rf " & cacheDir &
         " " & jsOut &
@@ -223,7 +240,8 @@ when declared(switch):
         " " & wasmJsMap &
         " " & wasmHash &
         " " & wasmFile &
-        " " & wasmOptFile
+        " " & wasmOptFile &
+        " " & soFile
       echo "Running command: " & cmd & "..."
       withDir(thisDir()):
         exec(cmd)
