@@ -326,7 +326,21 @@ pending remote init or ping operations.
 
 - App payload encoding is app-specific. JSON is only an example choice.
 - Vignette-to-app payloads are opaque bytes.
-- The framework currently uses JSON for host-side init bootstrap parsing.
-- `ping()` is a first-class bridge API.
-- Local `ping()` currently measures bridge-to-worker RTT.
-- Remote `ping()` measures worker, transport, and remote host echo RTT.
+- The framework uses binary format for all system message payloads (Init, Ready, Error, Ping/Pong).
+
+## Payload Codec Abstraction
+
+The framework treats app payloads as opaque bytes. Applications can choose any serialization:
+
+```ts
+interface PayloadCodec {
+  encodePayload<T>(data: T): Uint8Array;
+  decodePayload<T>(bytes: Uint8Array): T;
+}
+```
+
+**Why this abstraction:**
+- Allows swapping JSON for MessagePack, Protobuf, or custom formats
+- App and host must use matching codecs (framework doesn't enforce)
+- Examples use JSON for human readability; production may prefer binary formats
+- Consistent interface across all serialization choices
