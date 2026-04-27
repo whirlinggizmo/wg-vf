@@ -1,6 +1,6 @@
-import type { Vignette } from "../../../src";
+import type { Vignette } from "../../../../src";
 // Swap this import to use a different codec (msgpack, protobuf, etc.)
-import { decodePayload } from "../../codec/json-codec";
+import { decodePayload } from "../../../codecs/json-codec";
 
 export default class EchoVignette implements Vignette {
   private readonly outbox: Uint8Array[] = [];

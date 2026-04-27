@@ -11,7 +11,7 @@ when declared(switch):
 
   const buildTypes = @["js", "wasm", "c", "cpp", "all"]
   const outDir = "./out"
-  const vignetteName = "echo-vignette"
+  const vignetteName = "simple-vignette"
   const mainEntryFile = "src/main.nim"
 
 

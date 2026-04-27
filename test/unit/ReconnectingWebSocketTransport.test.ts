@@ -1,3 +1,4 @@
+import type { ServerWebSocket } from 'bun';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { ReconnectingWebSocketTransport } from '../../src';
@@ -59,9 +60,14 @@ function startWsServer(): TestWsServer {
     },
   });
 
+  const port = server.port;
+  if (!port) {
+    throw new Error('Server failed to start on a port');
+  }
+
   return {
     hostname,
-    port: server.port,
+    port,
     received,
     closeConnections(code = 1012, reason = 'test close') {
       for (const ws of sockets) {
