@@ -13,7 +13,8 @@ export default class EchoVignette implements Vignette {
   }
 
   async tick(_dtUs: number, _frameId: number): Promise<void> {
-    //console.log("[vignette (js)] tick");
+    console.log("[vignette (js)] received tick from host: dtUs=" + _dtUs + ", frameId=" + _frameId);
+
     // no-op for example
   }
 
