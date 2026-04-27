@@ -36,6 +36,7 @@ export { encodeAppEnvelope, encodeSystemEnvelope } from './envelope/encode';
 export {
   type ReadyPayload,
   type ErrorPayload,
+  type InitPayload,
   encodeReadyPayload,
   decodeReadyPayload,
   encodeErrorPayload,
@@ -43,4 +44,6 @@ export {
   type PingPayload,
   encodePingPayload,
   decodePingPayload,
+  encodeInitPayload,
+  decodeInitPayload,
 } from './envelope/systemPayloads';

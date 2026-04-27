@@ -1,4 +1,5 @@
-import { type Vignette, type VignetteType, isVignetteType } from '../vignettes/Vignette';
+import type { Vignette, VignetteType } from '../vignettes/Vignette';
+import { decodeInitPayload } from '../envelope/systemPayloads';
 import { BaseVignetteHost, type ResolvedInitPayload } from './BaseVignetteHost';
 
 interface LocalVignetteHostOptions {
@@ -25,36 +26,21 @@ export class LocalVignetteHost extends BaseVignetteHost {
   }
 
   protected resolveInitPayload(initPayload: Uint8Array): ResolvedInitPayload {
-    const fallback = {
+    // Try to parse as binary Init payload first (for authority override)
+    const parsed = decodeInitPayload(initPayload);
+    if (parsed !== null) {
+      return {
+        vignetteType: parsed.vignetteType,
+        vignetteUrl: parsed.vignetteUrl,
+        vignetteInitPayload: parsed.initPayload,
+      };
+    }
+
+    // Fall back to connect-time defaults (opaque app payload)
+    return {
       vignetteType: this.defaultVignetteType,
       vignetteUrl: this.defaultVignetteUrl,
       vignetteInitPayload: initPayload,
     };
-
-    try {
-      const parsed = JSON.parse(new TextDecoder().decode(initPayload)) as {
-        vignetteType?: unknown;
-        vignetteUrl?: unknown;
-        initPayload?: unknown;
-      };
-
-      const vignetteType = isVignetteType(parsed?.vignetteType)
-        ? parsed.vignetteType
-        : this.defaultVignetteType;
-      const vignetteUrl =
-        typeof parsed?.vignetteUrl === 'string' ? parsed.vignetteUrl : this.defaultVignetteUrl;
-      const vignetteInitPayload =
-        parsed && Object.prototype.hasOwnProperty.call(parsed, 'initPayload')
-          ? new TextEncoder().encode(JSON.stringify(parsed.initPayload))
-          : initPayload;
-
-      return {
-        vignetteType,
-        vignetteUrl,
-        vignetteInitPayload,
-      };
-    } catch {
-      return fallback;
-    }
   }
 }

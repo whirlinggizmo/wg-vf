@@ -26,6 +26,12 @@ export interface PingPayload {
   sentAtMs: number;
 }
 
+export interface InitPayload {
+  vignetteType: VignetteType;
+  vignetteUrl: string;
+  initPayload: Uint8Array;
+}
+
 function vignetteTypeToByte(type: VignetteType): number {
   return type === 'js' ? VIGNETTE_TYPE_JS : VIGNETTE_TYPE_WASM;
 }
@@ -160,4 +166,58 @@ export function decodePingPayload(payload: Uint8Array): PingPayload | null {
     sequence: view.getUint32(0, true),
     sentAtMs: view.getFloat64(4, true),
   };
+}
+
+// Init payload binary format (variable length):
+// byte 0: vignetteType (0 = js, 1 = wasm)
+// bytes 1-4: vignetteUrl length (u32 LE)
+// bytes 5..(5+vignetteUrlLen-1): vignetteUrl UTF-8 bytes
+// bytes (5+vignetteUrlLen)..(5+vignetteUrlLen+3): initPayloadLen (u32 LE)
+// bytes (9+vignetteUrlLen)..: initPayload bytes
+
+export function encodeInitPayload(payload: InitPayload): Uint8Array {
+  const vignetteUrlBytes = textEncoder.encode(payload.vignetteUrl);
+  const headerSize = 1 + 4 + vignetteUrlBytes.length + 4;
+  const result = new Uint8Array(headerSize + payload.initPayload.length);
+
+  result[0] = vignetteTypeToByte(payload.vignetteType);
+
+  const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+  view.setUint32(1, vignetteUrlBytes.length, true);
+  result.set(vignetteUrlBytes, 5);
+  view.setUint32(5 + vignetteUrlBytes.length, payload.initPayload.length, true);
+  result.set(payload.initPayload, 9 + vignetteUrlBytes.length);
+
+  return result;
+}
+
+export function decodeInitPayload(payload: Uint8Array): InitPayload | null {
+  if (payload.length < 9) {
+    return null;
+  }
+
+  const vignetteType = byteToVignetteType(payload[0]);
+  if (vignetteType === null) {
+    return null;
+  }
+
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const vignetteUrlLen = view.getUint32(1, true);
+
+  if (payload.length < 9 + vignetteUrlLen) {
+    return null;
+  }
+
+  const vignetteUrlBytes = payload.slice(5, 5 + vignetteUrlLen);
+  const vignetteUrl = textDecoder.decode(vignetteUrlBytes);
+
+  const initPayloadLen = view.getUint32(5 + vignetteUrlLen, true);
+
+  if (payload.length !== 9 + vignetteUrlLen + initPayloadLen) {
+    return null;
+  }
+
+  const initPayload = payload.slice(9 + vignetteUrlLen);
+
+  return { vignetteType, vignetteUrl, initPayload };
 }

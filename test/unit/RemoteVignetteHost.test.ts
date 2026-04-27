@@ -48,16 +48,17 @@ describe('RemoteVignetteHost', () => {
       emitted.push(bytes.slice());
     });
 
+    // Send invalid binary data (too short to be valid Init payload)
     await expect(
-      host.onInit(new TextEncoder().encode(JSON.stringify({ initPayload: { userId: 'Nope' } }))),
-    ).rejects.toThrow('Remote init payload must include vignetteType');
+      host.onInit(new Uint8Array([0, 0, 0, 0])), // truncated binary
+    ).rejects.toThrow('Remote init payload must be binary with vignetteType, vignetteUrl, and initPayload');
 
     expect(emitted.length).toBe(1);
     const errorEnvelope = decodeEnvelope(emitted[0]!);
     expect(errorEnvelope.messageKind).toBe(MessageKind.System);
     expect(errorEnvelope.systemType).toBe(SystemType.Error);
     expect(decodeErrorPayload(errorEnvelope.payload)).toEqual({
-      message: 'Remote init payload must include vignetteType',
+      message: 'Remote init payload must be binary with vignetteType, vignetteUrl, and initPayload',
     });
   });
 

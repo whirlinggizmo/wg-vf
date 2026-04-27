@@ -1,4 +1,4 @@
-import { decodeEnvelope, SystemType } from '../src';
+import { decodeEnvelope, SystemType, encodeInitPayload } from '../src';
 import { decodeJsonPayload, encodeJsonPayload } from '../examples/common/codec';
 import type { RemoteVignetteHost } from '../src';
 
@@ -37,10 +37,10 @@ export function encodeInit(userId: string): Uint8Array {
 }
 
 export function encodeRemoteInit(userId: string): Uint8Array {
-  return encodeJsonPayload({
+  return encodeInitPayload({
     vignetteType: 'js',
     vignetteUrl: TEST_VIGNETTE_URL,
-    initPayload: { userId },
+    initPayload: encodeJsonPayload({ userId }),
   });
 }
 

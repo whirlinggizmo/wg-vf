@@ -1,7 +1,7 @@
 import type { Vignette } from '../vignettes/Vignette';
-import { isVignetteType } from '../vignettes/Vignette';
 import { decodeEnvelope } from '../envelope/decode';
 import { MessageKind, SystemType } from '../envelope/types';
+import { decodeInitPayload } from '../envelope/systemPayloads';
 import { BaseVignetteHost, type ResolvedInitPayload } from './BaseVignetteHost';
 
 interface BytePeer {
@@ -53,39 +53,18 @@ export class RemoteVignetteHost extends BaseVignetteHost {
       };
     }
 
-    try {
-      const parsed = JSON.parse(new TextDecoder().decode(initPayload)) as {
-        vignetteType?: unknown;
-        vignetteUrl?: unknown;
-        initPayload?: unknown;
-      };
-
-      if (!isVignetteType(parsed?.vignetteType)) {
-        throw new Error('Remote init payload must include vignetteType');
-      }
-
-      if (typeof parsed?.vignetteUrl !== 'string') {
-        throw new Error('Remote init payload must include vignetteUrl');
-      }
-
-      const vignetteInitPayload =
-        parsed && Object.prototype.hasOwnProperty.call(parsed, 'initPayload')
-          ? new TextEncoder().encode(JSON.stringify(parsed.initPayload))
-          : initPayload;
-
-      return {
-        vignetteType: parsed.vignetteType,
-        vignetteUrl: parsed.vignetteUrl,
-        vignetteInitPayload,
-      };
-    } catch (err) {
-      if (err instanceof Error) {
-        throw err;
-      }
+    const parsed = decodeInitPayload(initPayload);
+    if (parsed === null) {
       throw new Error(
-        'Remote init payload must be JSON with vignetteType, vignetteUrl, and optional initPayload',
+        'Remote init payload must be binary with vignetteType, vignetteUrl, and initPayload',
       );
     }
+
+    return {
+      vignetteType: parsed.vignetteType,
+      vignetteUrl: parsed.vignetteUrl,
+      vignetteInitPayload: parsed.initPayload,
+    };
   }
 
   private async handleIncomingBytes(bytes: Uint8Array): Promise<void> {
