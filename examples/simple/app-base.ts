@@ -41,10 +41,6 @@ export abstract class BaseApp {
     return config.vignetteType;
   }
 
-  protected get moduleUrl(): string {
-    return config.moduleUrl ?? this.getVignetteUrl(this.vignetteType);
-  }
-
   abstract getConnectOptions(): LocalConnectOptions | RemoteConnectOptions;
   abstract getInitPayload(): Uint8Array;
 

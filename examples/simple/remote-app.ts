@@ -19,7 +19,7 @@ class RemoteApp extends BaseApp {
   getInitPayload(): Uint8Array {
     return encodePayload({
       vignetteType: this.vignetteType,
-      vignetteUrl: this.moduleUrl,
+      vignetteUrl: this.getVignetteUrl(this.vignetteType),
       initPayload: { userId: "Bob" },
     });
   }
