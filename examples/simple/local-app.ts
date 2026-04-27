@@ -2,6 +2,11 @@ import { encodePayload } from "../codecs/json-codec";
 import { BaseApp, type LocalConnectOptions } from "./app-base";
 
 class LocalApp extends BaseApp {
+
+  protected override log(...args: any[]) {
+    console.log(`[local-app]`, ...args);
+  }
+
   getConnectOptions(): LocalConnectOptions {
     return {
       mode: "local",
@@ -13,10 +18,7 @@ class LocalApp extends BaseApp {
   getInitPayload(): Uint8Array {
     return encodePayload({ userId: "Bob" });
   }
-
-  protected override get logPrefix(): string {
-    return "[local-app]";
-  }
 }
 
 await new LocalApp().run();
+

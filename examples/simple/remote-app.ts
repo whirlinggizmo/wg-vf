@@ -3,7 +3,11 @@ import { BaseApp, type RemoteConnectOptions } from "./app-base";
 
 class RemoteApp extends BaseApp {
   private pingInterval?: ReturnType<typeof setInterval>;
-
+  
+  protected override log(...args: any[]) {
+    console.log(`[remote-app]`, ...args);
+  }
+  
   getConnectOptions(): RemoteConnectOptions {
     return {
       mode: "remote",
@@ -25,10 +29,10 @@ class RemoteApp extends BaseApp {
         this.bridge
           .ping()
           .then((result) => {
-            console.log(`[bridge] ping: ${result.rttMs}ms`);
+            this.log(`ping: ${result.rttMs}ms`);
           })
           .catch((reason) => {
-            console.log(`[app] ping failed: ${reason}`);
+            this.log(`ping failed: ${reason}`);
           });
       }
     }, 5000);
@@ -38,10 +42,6 @@ class RemoteApp extends BaseApp {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
     }
-  }
-
-  protected override get logPrefix(): string {
-    return "[remote-app]";
   }
 }
 

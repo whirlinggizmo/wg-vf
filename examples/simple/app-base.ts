@@ -3,6 +3,7 @@ import { VignetteBridge, type VignetteType } from "../../src";
 import { decodePayload, encodePayload } from "../codecs/json-codec";
 import { config } from "./config";
 
+
 export type LocalConnectOptions = {
   mode: "local";
   vignetteType: VignetteType;
@@ -43,7 +44,9 @@ export abstract class BaseApp {
   abstract getConnectOptions(): LocalConnectOptions | RemoteConnectOptions;
   abstract getInitPayload(): Uint8Array;
 
-  protected abstract get logPrefix(): string;
+  protected log(...args: any[]) {
+    console.log(`[app-base]`, ...args);
+  }
 
   // Optional hook for subclasses to add extra setup (e.g., ping intervals)
   protected onConnected?(): void;
@@ -65,8 +68,8 @@ export abstract class BaseApp {
       if (messages.length > 0) {
         messagesReceived += messages.length;
         for (const payload of messages) {
-          console.log(
-            "[bridge] received message from vignette:",
+          this.log(
+            "received message from vignette:",
             decodePayload(payload),
           );
         }
@@ -74,9 +77,9 @@ export abstract class BaseApp {
     }, 30 / 1000);
 
     const timeoutDuration = 5000;
-    console.log(`${this.logPrefix} setting disconnect timeout for ${timeoutDuration} ms`);
+    this.log(`setting disconnect timeout for ${timeoutDuration} ms`);
     setTimeout(async () => {
-      console.log(`${this.logPrefix} test timeout reached, disconnecting from vignette`);
+      this.log("test timeout reached, disconnecting from vignette");
       clearInterval(checkMessagesInterval);
       // Cleanup subclass resources before disconnect
       this.onDisconnect?.();
