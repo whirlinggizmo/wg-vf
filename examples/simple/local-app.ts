@@ -13,6 +13,10 @@ class LocalApp extends BaseApp {
   getInitPayload(): Uint8Array {
     return encodePayload({ userId: "Bob" });
   }
+
+  getLogPrefix(): string {
+    return "[local-app]";
+  }
 }
 
 await new LocalApp().run();

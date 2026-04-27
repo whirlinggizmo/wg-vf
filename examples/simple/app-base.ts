@@ -42,6 +42,7 @@ export abstract class BaseApp {
 
   abstract getConnectOptions(): LocalConnectOptions | RemoteConnectOptions;
   abstract getInitPayload(): Uint8Array;
+  abstract getLogPrefix(): string;
 
   // Optional hook for subclasses to add extra setup (e.g., ping intervals)
   protected onConnected?(): void;
@@ -72,9 +73,9 @@ export abstract class BaseApp {
     }, 30 / 1000);
 
     const timeoutDuration = 5000;
-    console.log(`[app] setting disconnect timeout for ${timeoutDuration} ms`);
+    console.log(`${this.getLogPrefix()} setting disconnect timeout for ${timeoutDuration} ms`);
     setTimeout(async () => {
-      console.log("[app] test timeout reached, disconnecting from vignette");
+      console.log(`${this.getLogPrefix()} test timeout reached, disconnecting from vignette`);
       clearInterval(checkMessagesInterval);
       // Cleanup subclass resources before disconnect
       this.onDisconnect?.();

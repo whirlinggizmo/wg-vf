@@ -20,8 +20,6 @@ proc decodeJsonPayload(data: openArray[Byte]): JsonNode =
     echo "Failed to parse JSON payload: " & text
     return nil
 
-
-
 proc onInit(data: openArray[Byte]) =
   log("received init from host: " & $decodeJsonPayload(data));
 

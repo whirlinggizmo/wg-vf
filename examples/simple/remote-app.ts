@@ -39,6 +39,10 @@ class RemoteApp extends BaseApp {
       clearInterval(this.pingInterval);
     }
   }
+
+  getLogPrefix(): string {
+    return "[remote-app]";
+  }
 }
 
 await new RemoteApp().run();
