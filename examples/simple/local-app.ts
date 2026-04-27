@@ -11,7 +11,7 @@ class LocalApp extends BaseApp {
     return {
       mode: "local",
       vignetteType: this.vignetteType,
-      moduleUrl: this.getVignetteUrl(this.vignetteType),
+      moduleUrl: this.moduleUrl,
     };
   }
 
