@@ -1,2 +1,4 @@
 node_modules/
 vignette/nim/.nimcache/
+out
+dist
