@@ -9,13 +9,14 @@ when declared(switch):
   switch("hints", "off")
   switch("verbosity", "1") # disable verbose output
 
-  const buildTypes = @["js", "wasm", "so", "c", "cpp", "all"]
+  const buildTypes = @["js", "wasm", "shared", "c", "cpp", "all"]
   const outDir = "./out"
   const vignetteName = "simple-vignette"
   const mainEntryFile = "src/main.nim"
 
 
-  switch("path", thisDir()) # for shared and lib 
+  switch("path", thisDir()) # for shared and lib
+  switch("path", thisDir() & "/../../../../src") # for framework vignette module 
 
 
   proc ensureDirExists*(dir: string) =
@@ -108,8 +109,8 @@ when declared(switch):
     switch("passL", "-sEXPORTED_FUNCTIONS=[\"_vf_init\",\"_vf_tick\",\"_vf_fixed_tick\",\"_vf_handle_message\",\"_vf_shutdown\",\"_vf_outbox_offset\",\"_vf_outbox_capacity\",\"_vf_mem_alloc\",\"_vf_mem_free\",\"_malloc\",\"_free\",\"_main\"]")
     switch("passL", "-Oz") # Optimization, can be re-enabled later
 
-  when defined(so):
-    echo "Configuring " & vignetteName & " for Shared Library (SO)"
+  when defined(shared):
+    echo "Configuring " & vignetteName & " for Shared Library (.so)"
 
     configureCommon(vignetteName)
 
@@ -118,15 +119,15 @@ when declared(switch):
 
     switch("app", "lib")
     switch("out", outDir & "/" & outFilename)
-    switch("define", "so")
+    switch("define", "shared")
     switch("mm", "arc")
 
   proc printUsage() =
 
-    echo "Usage: nim build [js|wasm|so|c|cpp|all]"
+    echo "Usage: nim build [js|wasm|shared|c|cpp|all]"
     echo "       nim clean"
     echo ""
-    echo "If no build type is provided, builds 'all' (js + wasm)"
+    echo "If no build type is provided, builds 'all' (js + wasm + shared)"
 
   proc taskParams(): seq[string] =
     result = commandLineParams()
@@ -146,9 +147,9 @@ when declared(switch):
       of "wasm":
         commandType = "c"
         commandDefines.add("emscripten")
-      of "so":
+      of "shared":
         commandType = "c"
-        commandDefines.add("so")
+        commandDefines.add("shared")
       of "c":
         echo "Refusing to build for C, this probably isn't what you want."
         return false
@@ -172,6 +173,16 @@ when declared(switch):
       echo "Failed to build " & vignetteName & " for " & buildType.toUpper()
       return false
     echo "Build complete for " & buildType.toUpper() & "."
+
+    # Copy header to out directory for shared library builds
+    if buildType == "shared":
+      let srcHeader = thisDir() & "/../../../../src/vignettes/vignette.h"
+      let outHeader = outDir & "/vignette.h"
+      if fileExists(srcHeader):
+        echo "Copying header to " & outHeader & "..."
+        let cpCmd = "cp " & srcHeader & " " & outHeader
+        exec(cpCmd)
+
     return true
 
   task build, "build [build_type]":
@@ -187,10 +198,11 @@ when declared(switch):
       return
 
     if buildType == "all":
-      echo "Building all targets (js + wasm)..."
+      echo "Building all targets (js + wasm + shared)..."
       let jsSuccess = buildSingle("js")
       let wasmSuccess = buildSingle("wasm")
-      if jsSuccess and wasmSuccess:
+      let sharedSuccess = buildSingle("shared")
+      if jsSuccess and wasmSuccess and sharedSuccess:
         echo "All builds complete."
       else:
         echo "One or more builds failed."
@@ -231,7 +243,8 @@ when declared(switch):
       let wasmHash = wasmJs & ".hash"
       let wasmFile = outDir & "/" & vignetteName.toLower() & "_wasm.wasm"
       let wasmOptFile = outDir & "/" & vignetteName.toLower() & "_wasm.opt.wasm"
-      let soFile = outDir & "/lib" & vignetteName.toLower() & ".so"
+      let sharedLibFile = outDir & "/lib" & vignetteName.toLower() & ".so"
+      let headerFile = outDir & "/vignette.h"
 
       var cmd = "rm -rf " & cacheDir &
         " " & jsOut &
@@ -241,7 +254,8 @@ when declared(switch):
         " " & wasmHash &
         " " & wasmFile &
         " " & wasmOptFile &
-        " " & soFile
+        " " & sharedLibFile &
+        " " & headerFile
       echo "Running command: " & cmd & "..."
       withDir(thisDir()):
         exec(cmd)

@@ -114,53 +114,53 @@ else:
     for i in 0 ..< int(len):
       result[i] = src[i]
 
-proc vf_init*(inPtr, inLen: uint32): uint32 {.exportc, cdecl.} =
+proc vf_init*(inPtr, inLen: uint32): uint32 {.exportc, cdecl, dynlib.} =
   initOutbox()
   let payload = readPayload(inPtr, inLen)
   if onInitCb != nil:
     onInitCb(payload)
   0'u32
 
-proc vf_tick*(dtUs, frameId: uint32): uint32 {.exportc, cdecl.} =
+proc vf_tick*(dtUs, frameId: uint32): uint32 {.exportc, cdecl, dynlib.} =
   if onTickCb != nil:
     onTickCb(dtUs, frameId)
   0'u32
 
-proc vf_fixed_tick*(stepUs, stepIndex: uint32): uint32 {.exportc, cdecl.} =
+proc vf_fixed_tick*(stepUs, stepIndex: uint32): uint32 {.exportc, cdecl, dynlib.} =
   if onFixedTickCb != nil:
     onFixedTickCb(stepUs, stepIndex)
   0'u32
 
-proc vf_handle_message*(inPtr, inLen: uint32): uint32 {.exportc, cdecl.} =
+proc vf_handle_message*(inPtr, inLen: uint32): uint32 {.exportc, cdecl, dynlib.} =
   let payload = readPayload(inPtr, inLen)
   if onMessageCb != nil:
     return onMessageCb(payload)
   0'u32
 
-proc vf_shutdown*(): uint32 {.exportc, cdecl.} =
+proc vf_shutdown*(): uint32 {.exportc, cdecl, dynlib.} =
   if onShutdownCb != nil:
     onShutdownCb()
   initOutbox()
   0'u32
 
-proc vf_outbox_offset*(): uint32 {.exportc, cdecl.} =
+proc vf_outbox_offset*(): uint32 {.exportc, cdecl, dynlib.} =
   cast[uint32](cast[uint](addr outboxRegion[0]))
 
-proc vf_outbox_capacity*(): uint32 {.exportc.} =
+proc vf_outbox_capacity*(): uint32 {.exportc, dynlib.} =
   uint32(OutboxCap)
 
 when not defined(js):
-  proc mem_alloc*(size: uint32): uint32 {.exportc, cdecl.} =
+  proc mem_alloc*(size: uint32): uint32 {.exportc, cdecl, dynlib.} =
     cast[uint32](cast[uint](alloc(int(size))))
 
-  proc mem_free*(memPtr: uint32) {.exportc, cdecl.} =
+  proc mem_free*(memPtr: uint32) {.exportc, cdecl, dynlib.} =
     if memPtr != 0'u32:
       dealloc(cast[pointer](cast[uint](memPtr)))
 
-  proc vf_mem_alloc*(size: uint32): uint32 {.exportc, cdecl.} =
+  proc vf_mem_alloc*(size: uint32): uint32 {.exportc, cdecl, dynlib.} =
     mem_alloc(size)
 
-  proc vf_mem_free*(memPtr: uint32) {.exportc, cdecl.} =
+  proc vf_mem_free*(memPtr: uint32) {.exportc, cdecl, dynlib.} =
     mem_free(memPtr)
 else:
   proc mem_alloc*(size: uint32): uint32 {.exportc, cdecl.} =

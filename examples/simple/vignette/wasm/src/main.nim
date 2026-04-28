@@ -1,5 +1,5 @@
 import std/json
-import ./vignette_shared
+import vignettes/vignette
 
 proc log(message: string) =
   when defined(js):
