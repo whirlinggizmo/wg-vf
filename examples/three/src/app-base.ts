@@ -30,6 +30,11 @@ export abstract class BaseApp {
   protected renderer!: THREE.WebGLRenderer;
   protected entities: Map<string, THREE.Mesh> = new Map();
   protected readonly vignetteType: VignetteType;
+  private animationFrameId: number | null = null;
+  private cleanupRun: (() => void) | null = null;
+  private isRendering = false;
+  private resizeHandler: (() => void) | null = null;
+  private renderContainer: HTMLElement | null = null;
 
   protected constructor(vignetteType: VignetteType) {
     this.vignetteType = vignetteType;
@@ -52,6 +57,9 @@ export abstract class BaseApp {
   }
 
   protected initRenderer(container: HTMLElement): void {
+    this.renderContainer = container;
+    container.replaceChildren();
+
     // Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x222222);
@@ -86,18 +94,24 @@ export abstract class BaseApp {
     this.scene.add(gridHelper);
 
     // Handle resize
-    window.addEventListener("resize", () => {
+    this.resizeHandler = () => {
       this.camera.aspect = container.clientWidth / container.clientHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(container.clientWidth, container.clientHeight);
-    });
+    };
+    window.addEventListener("resize", this.resizeHandler);
 
     // Start render loop
+    this.isRendering = true;
     this.animate();
   }
 
   private animate = (): void => {
-    requestAnimationFrame(this.animate);
+    if (!this.isRendering) {
+      return;
+    }
+
+    this.animationFrameId = requestAnimationFrame(this.animate);
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -187,39 +201,86 @@ export abstract class BaseApp {
   async run(container: HTMLElement): Promise<void> {
     this.initRenderer(container);
 
-    await this.bridge.connect(this.getConnectOptions());
-    await this.bridge.init(this.getInitPayload());
-    await this.bridge.handleMessage(encodePayload({ type: "SpawnPlayer" }));
+    try {
+      await this.bridge.connect(this.getConnectOptions());
+      await this.bridge.init(this.getInitPayload());
+      await this.bridge.handleMessage(encodePayload({ type: "SpawnPlayer" }));
 
-    this.log("Connected to vignette");
+      this.log("Connected to vignette");
 
-    // Spawn a few random entities
-    for (let i = 0; i < 5; i++) {
-      await this.bridge.handleMessage(encodePayload({ type: "SpawnRandomEntity" }));
-    }
-
-    // Poll for messages from vignette
-    const pollInterval = setInterval(() => {
-      const messages = this.bridge.pollOutbox();
-      for (const payload of messages) {
-        this.handleVignetteMessage(payload);
+      // Spawn a few random entities
+      for (let i = 0; i < 5; i++) {
+        await this.bridge.handleMessage(encodePayload({ type: "SpawnRandomEntity" }));
       }
-    }, 16); // ~60fps
 
-    // Cleanup on disconnect
-    return new Promise((resolve) => {
-      // Store cleanup function for later
-      (this as any).cleanup = () => {
-        clearInterval(pollInterval);
-        resolve();
-      };
-    });
+      // Poll for messages from vignette
+      const pollInterval = setInterval(() => {
+        const messages = this.bridge.pollOutbox();
+        for (const payload of messages) {
+          this.handleVignetteMessage(payload);
+        }
+      }, 16); // ~60fps
+
+      // Cleanup on disconnect
+      return new Promise((resolve) => {
+        this.cleanupRun = () => {
+          clearInterval(pollInterval);
+          this.disposeRenderer();
+          resolve();
+        };
+      });
+    } catch (err) {
+      this.disposeRenderer();
+      throw err;
+    }
   }
 
   async disconnect(): Promise<void> {
-    await this.bridge.disconnect();
-    // Trigger cleanup
-    const cleanup = (this as any).cleanup;
-    if (cleanup) cleanup();
+    try {
+      await this.bridge.disconnect();
+    } finally {
+      this.cleanupRun?.();
+      this.cleanupRun = null;
+    }
+  }
+
+  private disposeRenderer(): void {
+    this.isRendering = false;
+
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    if (this.resizeHandler) {
+      window.removeEventListener("resize", this.resizeHandler);
+      this.resizeHandler = null;
+    }
+
+    if (this.scene) {
+      this.scene.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        mesh.geometry?.dispose();
+
+        const material = mesh.material;
+        if (Array.isArray(material)) {
+          for (const entry of material) {
+            entry.dispose();
+          }
+        } else {
+          material?.dispose();
+        }
+      });
+    }
+
+    this.entities.clear();
+
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer.domElement.remove();
+    }
+
+    this.renderContainer?.replaceChildren();
+    this.renderContainer = null;
   }
 }
