@@ -101,5 +101,13 @@ describe("Vignette Shared Library", () => {
     for (const func of EXPECTED_SYMBOLS) {
       expect(headerFunctions).toContain(func);
     }
+
+    // Check for extraneous exports: symbols in .so but NOT in header
+    const headerSet = new Set(headerFunctions);
+    const extraneousExports = exportedFunctions.filter(f => !headerSet.has(f));
+    if (extraneousExports.length > 0) {
+      console.warn("Extraneous exports not in header:", extraneousExports);
+    }
+    expect(extraneousExports).toEqual([]);
   });
 });
