@@ -29,6 +29,15 @@ const THREE_WASM_VIGNETTE_URL = new URL(
   import.meta.url,
 ).href;
 
+const THREE_NIM_JS_VIGNETTE_URL = new URL(
+  '../../../examples/three/vignette/nim/out/three-vignette.js',
+  import.meta.url,
+).href;
+
+const HAS_THREE_NIM_JS_BUILD = existsSync(
+  new URL('../../../examples/three/vignette/nim/out/three-vignette.js', import.meta.url),
+);
+
 const HAS_THREE_WASM_BUILD = existsSync(
   new URL('../../../examples/three/vignette/nim/out/three-vignette_wasm.js', import.meta.url),
 );
@@ -47,6 +56,13 @@ describe('Three example local vignette integration', () => {
     await expectAnimatedState({
       vignetteType: 'js',
       moduleUrl: THREE_TS_VIGNETTE_URL,
+    });
+  });
+
+  test.skipIf(!HAS_THREE_NIM_JS_BUILD)('nim js vignette emits changing state updates over time', async () => {
+    await expectAnimatedState({
+      vignetteType: 'js',
+      moduleUrl: THREE_NIM_JS_VIGNETTE_URL,
     });
   });
 

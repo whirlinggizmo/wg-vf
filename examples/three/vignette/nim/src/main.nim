@@ -1,8 +1,8 @@
 import std/json
-import std/times
 import std/random
 import std/math
 import vignettes/vignette
+
 
 # Initialize random seed
 randomize()
@@ -17,7 +17,7 @@ type
 
 var entities: seq[Entity] = @[]
 var playerId: string = ""
-var frameCount: uint32 = 0
+var nextEntityId: uint32 = 0
 var elapsedUs: float64 = 0.0
 
 proc log(message: string) =
@@ -38,6 +38,10 @@ proc bytesToString(data: openArray[Byte]): string =
   for i in 0 ..< data.len:
     result[i] = char(data[i])
 
+proc allocateEntityId(prefix: string): string =
+  nextEntityId += 1
+  prefix & "-" & $nextEntityId
+
 proc onInit(data: openArray[Byte]) =
   let text = bytesToString(data)
   log("init: " & text)
@@ -50,7 +54,7 @@ proc onHandleMessage(data: openArray[Byte]): uint32 =
   
   case msgType:
     of "SpawnPlayer":
-      playerId = "player-" & $int(epochTime() * 1000)
+      playerId = allocateEntityId("player")
       let player = Entity(
         id: playerId,
         x: 0.0,
@@ -96,7 +100,7 @@ proc onHandleMessage(data: openArray[Byte]): uint32 =
           
     of "SpawnRandomEntity":
       let newEntity = Entity(
-        id: "entity-" & $int(epochTime() * 1000),
+        id: allocateEntityId("entity"),
         x: (rand(1.0) - 0.5) * 10,
         y: (rand(1.0) - 0.5) * 10,
         z: (rand(1.0) - 0.5) * 10,
@@ -123,10 +127,11 @@ proc onTick(dtUs: uint32, frameId: uint32) =
   elapsedUs += float64(dtUs)
   let elapsedSeconds = elapsedUs / 1_000_000.0
 
-  # Update entity positions (gentle floating animation)
+  # sin() outputs -1..+1, so y moves from (-1 * yAmplitude) to (+1 * yAmplitude)
+  let yAmplitude = 5.0 # -5 to +5
   for i, entity in entities.mpairs:
     if entity.id != playerId:
-      entity.y = sin(elapsedSeconds / 2.0 + float64(entity.x) * 0.5) * 0.5
+      entity.y = sin(elapsedSeconds / 2.0 + float64(entity.x) * 0.5) * yAmplitude
   
   # Send state update at 30fps (every 2 frames at 60fps)
   if frameId mod 2 == 0:

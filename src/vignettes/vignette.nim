@@ -80,6 +80,28 @@ proc enqueueOutbox*(payload: openArray[Byte]): bool =
   setOutboxTail(tail)
   result = true
 
+proc dequeueOutbox*(): seq[Byte] =
+  let cap = uint32(OutboxCap)
+  var head = outboxHead()
+  let tail = outboxTail()
+
+  if head == tail:
+    return @[]
+
+  var len: uint32 = 0
+  for i in 0 .. 3:
+    let idx = OutboxHeaderSize + int(head)
+    len = len or (uint32(outboxRegion[idx]) shl (i * 8))
+    head = (head + 1'u32) mod cap
+
+  result = newSeq[Byte](int(len))
+  for i in 0 ..< int(len):
+    let idx = OutboxHeaderSize + int(head)
+    result[i] = outboxRegion[idx]
+    head = (head + 1'u32) mod cap
+
+  setOutboxHead(head)
+
 proc emitText*(msg: string) {.inline.} =
   var data = newSeq[Byte](msg.len)
   for i in 0 ..< msg.len:
@@ -188,6 +210,15 @@ else:
       return onMessageCb(data)
     0'u32
 
+  # Nim's JS target does not expose a stable linear-memory ABI like WASM.
+  # The emitted JS wrapper calls these private helpers via Nim symbol substitution
+  # instead of reaching into compiler-mangled globals such as outboxRegion.
+  proc jsOutboxHasMessages(): bool =
+    outboxHead() != outboxTail()
+
+  proc jsOutboxPop(): seq[Byte] =
+    dequeueOutbox()
+
 when defined(js):
   {.emit: """
 export function createVignette() {
@@ -203,6 +234,18 @@ export function createVignette() {
     return new Uint8Array(0);
   }
 
+  // WASM hosts can read the real Nim outbox through exported linear memory.
+  // Nim's JS output keeps that outbox in generated module state with unstable
+  // symbol names, so this adapter copies messages into the JS Vignette outbox
+  // after every entry point that may enqueue messages.
+  function syncOutbox() {
+    while (`jsOutboxHasMessages`()) {
+      const payload = `jsOutboxPop`();
+      if (!payload || payload.length === 0) break;
+      outbox.push(Uint8Array.from(payload));
+    }
+  }
+
   return {
     async init(initPayload) {
       const bytes = asBytes(initPayload);
@@ -212,29 +255,32 @@ export function createVignette() {
       } else if (typeof vf_init === 'function') {
         vf_init(0, bytes.length >>> 0);
       }
+      syncOutbox();
     },
 
     async tick(dtUs, frameId) {
       if (typeof vf_tick === 'function') {
         vf_tick((dtUs >>> 0), (frameId >>> 0));
       }
+      syncOutbox();
     },
 
     async fixedTick(stepUs, stepIndex) {
       if (typeof vf_fixed_tick === 'function') {
         vf_fixed_tick((stepUs >>> 0), (stepIndex >>> 0));
       }
+      syncOutbox();
     },
 
     async handleMessage(payload) {
       const bytes = asBytes(payload);
-      outbox.push(bytes.slice());
       const seqBytes = Array.from(bytes);
       if (typeof vf_handle_message_js === 'function') {
         vf_handle_message_js(seqBytes);
       } else if (typeof vf_handle_message === 'function') {
         vf_handle_message(0, bytes.length >>> 0);
       }
+      syncOutbox();
     },
 
     async shutdown() {
