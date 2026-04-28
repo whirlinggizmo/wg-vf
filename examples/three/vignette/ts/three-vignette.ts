@@ -1,4 +1,4 @@
-import type { Vignette } from "../../../src";
+import type { Vignette } from "../../../../src";
 // Swap this import to use a different codec (msgpack, protobuf, etc.)
 import { decodePayload, encodePayload } from "../../../codecs/json-codec";
 
@@ -25,11 +25,13 @@ export default class ThreeVignette implements Vignette {
   async tick(dtUs: number, frameId: number): Promise<void> {
     this.elapsedUs += dtUs;
     const elapsedSeconds = this.elapsedUs / 1_000_000;
+    // sin() outputs -1..+1, so y moves from (-1 * yAmplitude) to (+1 * yAmplitude)
+    const yAmplitude = 5.0 // -5 to +5
 
     // Update entity positions (gentle floating animation)
     for (const entity of this.entities) {
       if (entity.id !== this.playerId) {
-        entity.y = Math.sin(elapsedSeconds / 2 + entity.x * 0.5) * 0.5;
+        entity.y = Math.sin(elapsedSeconds / 2 + entity.x * 0.5) * yAmplitude;
       }
     }
 
