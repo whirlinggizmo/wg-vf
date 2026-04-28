@@ -4,7 +4,7 @@ import { decodePayload, encodePayload } from "../../codecs/json-codec";
 
 // Entity type matching the vignette
 interface Entity {
-  id: string;
+  id: number;
   x: number;
   y: number;
   z: number;
@@ -28,7 +28,7 @@ export abstract class BaseApp {
   protected scene!: THREE.Scene;
   protected camera!: THREE.PerspectiveCamera;
   protected renderer!: THREE.WebGLRenderer;
-  protected entities: Map<string, THREE.Mesh> = new Map();
+  protected entities: Map<number, THREE.Mesh> = new Map();
   protected readonly vignetteType: VignetteType;
   private animationFrameId: number | null = null;
   private cleanupRun: (() => void) | null = null;
@@ -152,7 +152,7 @@ export abstract class BaseApp {
     }
   }
 
-  protected removeEntity(id: string): void {
+  protected removeEntity(id: number): void {
     const mesh = this.entities.get(id);
     if (mesh) {
       this.scene.remove(mesh);
@@ -209,9 +209,9 @@ export abstract class BaseApp {
       this.log("Connected to vignette");
 
       // Spawn a few random entities
-      for (let i = 0; i < 5; i++) {
-        await this.bridge.handleMessage(encodePayload({ type: "SpawnRandomEntity" }));
-      }
+      //for (let i = 0; i < 5; i++) {
+      //  await this.bridge.handleMessage(encodePayload({ type: "SpawnRandomEntity" }));
+      //}
 
       // Poll for messages from vignette
       const pollInterval = setInterval(() => {

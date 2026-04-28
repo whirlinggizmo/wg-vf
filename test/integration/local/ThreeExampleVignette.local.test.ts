@@ -6,7 +6,7 @@ import { decodeJsonPayload, encodeJsonPayload } from '../../codec';
 import { waitFor } from '../../helpers';
 
 type Entity = {
-  id: string;
+  id: number;
   x: number;
   y: number;
   z: number;
@@ -133,5 +133,5 @@ async function expectAnimatedState(options: {
 }
 
 function findAnimatedEntity(entities: Entity[]): Entity | undefined {
-  return entities.find((entity) => entity.id.startsWith('entity-'));
+  return entities.find((entity) => Math.abs(entity.x) > 1e-4 || Math.abs(entity.z) > 1e-4);
 }

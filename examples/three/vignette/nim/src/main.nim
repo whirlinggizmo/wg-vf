@@ -10,13 +10,13 @@ randomize()
 # Game state
 type
   Entity = object
-    id: string
+    id: uint32
     x, y, z: float32
     entityType: string  # "cube" or "sphere"
     color: uint32
 
 var entities: seq[Entity] = @[]
-var playerId: string = ""
+var playerId: uint32 = 0
 var nextEntityId: uint32 = 0
 var elapsedUs: float64 = 0.0
 
@@ -38,13 +38,40 @@ proc bytesToString(data: openArray[Byte]): string =
   for i in 0 ..< data.len:
     result[i] = char(data[i])
 
-proc allocateEntityId(prefix: string): string =
+proc allocateEntityId(): uint32 =
   nextEntityId += 1
-  prefix & "-" & $nextEntityId
+  nextEntityId
+
+proc emitEntitySpawned(entity: Entity) =
+  sendMessage(%*{
+    "type": "EntitySpawned",
+    "entity": {
+      "id": entity.id,
+      "x": entity.x,
+      "y": entity.y,
+      "z": entity.z,
+      "type": entity.entityType,
+      "color": entity.color
+    }
+  })
+
+proc spawnRandomEntity(): Entity =
+  result = Entity(
+    id: allocateEntityId(),
+    x: (rand(1.0) - 0.5) * 10,
+    y: (rand(1.0) - 0.5) * 10,
+    z: (rand(1.0) - 0.5) * 10,
+    entityType: if rand(1.0) > 0.5: "cube" else: "sphere",
+    color: uint32(rand(0xFFFFFF))
+  )
+  entities.add(result)
+  emitEntitySpawned(result)
 
 proc onInit(data: openArray[Byte]) =
   let text = bytesToString(data)
   log("init: " & text)
+  for i in 0 ..< 5:
+    discard spawnRandomEntity()
 
 proc onHandleMessage(data: openArray[Byte]): uint32 =
   let text = bytesToString(data)
@@ -54,7 +81,7 @@ proc onHandleMessage(data: openArray[Byte]): uint32 =
   
   case msgType:
     of "SpawnPlayer":
-      playerId = allocateEntityId("player")
+      playerId = allocateEntityId()
       let player = Entity(
         id: playerId,
         x: 0.0,
@@ -64,21 +91,10 @@ proc onHandleMessage(data: openArray[Byte]): uint32 =
         color: 0x00ff00'u32
       )
       entities.add(player)
-      
-      sendMessage(%*{
-        "type": "EntitySpawned",
-        "entity": {
-          "id": player.id,
-          "x": player.x,
-          "y": player.y,
-          "z": player.z,
-          "type": player.entityType,
-          "color": player.color
-        }
-      })
+      emitEntitySpawned(player)
       
     of "MoveEntity":
-      let id = msg["id"].getStr()
+      let id = uint32(msg["id"].getInt())
       for entity in entities.mitems:
         if entity.id == id:
           entity.x = msg["x"].getFloat().float32
@@ -99,27 +115,7 @@ proc onHandleMessage(data: openArray[Byte]): uint32 =
           break
           
     of "SpawnRandomEntity":
-      let newEntity = Entity(
-        id: allocateEntityId("entity"),
-        x: (rand(1.0) - 0.5) * 10,
-        y: (rand(1.0) - 0.5) * 10,
-        z: (rand(1.0) - 0.5) * 10,
-        entityType: if rand(1.0) > 0.5: "cube" else: "sphere",
-        color: uint32(rand(0xFFFFFF))
-      )
-      entities.add(newEntity)
-      
-      sendMessage(%*{
-        "type": "EntitySpawned",
-        "entity": {
-          "id": newEntity.id,
-          "x": newEntity.x,
-          "y": newEntity.y,
-          "z": newEntity.z,
-          "type": newEntity.entityType,
-          "color": newEntity.color
-        }
-      })
+      discard spawnRandomEntity()
       
   return 0
 
