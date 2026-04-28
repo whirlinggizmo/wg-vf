@@ -1,0 +1,76 @@
+@import url('./fonts.css');
+
+#loadingScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background-color: black;
+    background-size: contain;
+    z-index: 999;
+    min-height: min-content;
+}
+
+@keyframes expand-mask {
+    100% {
+        -webkit-mask-size: 1000%;
+        mask-size: 1000%;
+    }
+}
+
+#loadingScreenBackground {
+    position: absolute;
+    top: 0%;
+    left: 0%;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background-color: black;
+    background-image: url('../img/bluegrid.svg');
+    background-repeat: repeat;
+    background-position: center;
+    background-size: contain;
+
+    /*
+    -webkit-mask-image: radial-gradient(circle, black 25%, transparent 75%);
+    mask-image: radial-gradient(circle, black 40%, transparent 55%);
+    mask-type: alpha;
+*/
+    -webkit-mask-image: radial-gradient(circle, black 25%, transparent 75%);
+    mask-image: radial-gradient(circle, black 25%, transparent 75%);
+    -webkit-mask-size: 100%;
+    mask-size: 100%;
+    -webkit-mask-position: 50%;
+    mask-position: 50%;
+}
+
+#loadingScreenLogo {
+    position: absolute;
+    top: 0%;
+    left: 0%;
+    width: 100%;
+    height: 100%;
+    background-image: url('../img/wg-logo.svg');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 50%;
+    opacity: 75%;
+}
+
+
+#loadingScreenText {
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    font-size: 20px;
+    bottom: 0;
+    left: 0;
+    -ms-transform: translateY(-100%);
+    transform: translateY(-100%);
+
+    font-family: 'Gaharu';
+    color: rgb(207, 198, 198);
+    opacity: 80%;
+}

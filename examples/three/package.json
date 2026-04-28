@@ -1,0 +1,30 @@
+{
+  "name": "vf-stage",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "check:node": "tsc --noEmit -p tsconfig.node.json",
+    "dev": "run-p dev:app vignette:ts:watch vignette:wasm:watch",
+    "dev:app": "vite --config vite.config.ts serve",
+    "vignette:ts:build": "vite build --config vignette/ts/vite.config.ts",
+    "vignette:ts:watch": "vite build --config vignette/ts/vite.config.ts --watch",
+    "vignette:wasm:build": "cd vignette/nim && nim build wasm",
+    "vignette:wasm:watch": "npm run vignette:wasm:build && onchange 'vignette/nim/src/**' -- npm run vignette:wasm:build",
+    "vignette:all": "cd vignette/nim && nim build all",
+    "vignette:clean": "cd vignette/nim && nim clean && rimraf vignette/ts/out"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/three": "^0.164.0",
+    "npm-run-all": "^4.1.5",
+    "onchange": "^7.1.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.2",
+    "vite": "^7.1.0"
+  },
+  "dependencies": {
+    "three": "^0.164.0"
+  }
+}

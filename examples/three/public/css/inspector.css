@@ -1,0 +1,9 @@
+#inspector-host {
+    z-index: 100;
+    pointer-events: auto;
+}
+
+#scene-explorer-host {
+    z-index: 100;
+    pointer-events: auto;
+}
