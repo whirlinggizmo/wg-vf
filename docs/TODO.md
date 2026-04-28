@@ -6,6 +6,10 @@
 - ~~Review local versus remote message-flow symmetry and decide where differences are intentional versus accidental.~~ ✅ Done - see [message_flow_symmetry_analysis.md](./message_flow_symmetry_analysis.md)
 - ~~Add lifecycle and failure-path tests for init, shutdown, reconnect, outbox draining, and host error handling.~~ ✅ Done
 - ~~Low priority: consider normalizing all system payloads to binary instead of keeping `Ready` and `Error` as JSON while `Ping`/`Pong` are binary.~~ ✅ Done - ENVELOPE_VERSION bumped to 2
+- Evaluate runtime efficiency options across JS, WASM, and future native hosts:
+  - reduce payload copies on ingress/egress where host boundaries allow it
+  - consider reusable inbox/outbox staging and batching strategies
+  - document which optimizations are transport-local versus ABI-level contract changes
 
 ## Future Work (Lower Priority)
 

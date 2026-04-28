@@ -24,6 +24,9 @@ Responsibilities:
 - implement `init`, `tick`, `fixedTick`, `handleMessage`, and `shutdown`
 
 A vignette does not know about workers, sockets, reconnect, or transport.
+JavaScript-hosted vignettes may receive payloads through direct JS entrypoints,
+while WASM and native hosts use the runtime ABI described in
+[Vignette Runtime ABI](./vignette_runtime_abi.md).
 
 ### VignetteHost
 The runtime owner of a vignette instance.
