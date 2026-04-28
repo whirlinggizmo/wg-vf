@@ -57,4 +57,49 @@ describe("Vignette Shared Library", () => {
       expect(nmOutput).toContain(symbol);
     }
   });
+
+  test("header declarations match exported symbols", () => {
+    expect(existsSync(SO_PATH)).toBe(true);
+    expect(existsSync(HEADER_PATH)).toBe(true);
+
+    // Read header and extract function declarations
+    const headerContent = execSync(`cat ${HEADER_PATH}`, {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+
+    // Parse function names from header (e.g., "uint32_t vf_init(...)")
+    const headerFunctions: string[] = [];
+    const functionRegex = /uint32_t\s+(vf_\w+)|void\s+(vf_\w+)|\s+(vf_\w+)\(/g;
+    let match;
+    while ((match = functionRegex.exec(headerContent)) !== null) {
+      const funcName = match[1] || match[2] || match[3];
+      if (funcName && !headerFunctions.includes(funcName)) {
+        headerFunctions.push(funcName);
+      }
+    }
+
+    // Get exported symbols from .so
+    const nmOutput = execSync(`nm -D ${SO_PATH}`, {
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+
+    // Extract function names from nm output (lines like "000000 T vf_init")
+    const exportedFunctions: string[] = [];
+    const nmRegex = /T\s+(vf_\w+)/g;
+    while ((match = nmRegex.exec(nmOutput)) !== null) {
+      exportedFunctions.push(match[1]);
+    }
+
+    // Compare: every header function should be exported
+    for (const func of headerFunctions) {
+      expect(exportedFunctions).toContain(func);
+    }
+
+    // Compare: every expected function should be in header
+    for (const func of EXPECTED_SYMBOLS) {
+      expect(headerFunctions).toContain(func);
+    }
+  });
 });
