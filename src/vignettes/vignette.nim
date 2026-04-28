@@ -2,9 +2,12 @@ const
   OutboxCap* = 64 * 1024
   OutboxHeaderSize = 12
   OutboxRegionSize = OutboxHeaderSize + OutboxCap
-  HeadOffset = 0
-  TailOffset = 4
-  CapOffset = 8
+
+when not defined(js):
+  const
+    HeadOffset = 0
+    TailOffset = 4
+    CapOffset = 8
 
 type
   Byte* = uint8
@@ -14,93 +17,110 @@ type
   VignetteFixedTickHandler* = proc(stepUs, stepIndex: uint32) {.nimcall.}
   VignetteShutdownHandler* = proc() {.nimcall.}
 
+var outboxRegion: array[OutboxRegionSize, Byte]
+
 var
-  outboxRegion: array[OutboxRegionSize, Byte]
   onInitCb: VignetteInitHandler
   onMessageCb: VignetteMessageHandler
   onTickCb: VignetteTickHandler
   onFixedTickCb: VignetteFixedTickHandler
   onShutdownCb: VignetteShutdownHandler
 
-proc getU32(offset: int): uint32 {.inline.} =
-  result =
-    (uint32(outboxRegion[offset + 0]) shl 0) or
-    (uint32(outboxRegion[offset + 1]) shl 8) or
-    (uint32(outboxRegion[offset + 2]) shl 16) or
-    (uint32(outboxRegion[offset + 3]) shl 24)
+when not defined(js):
+  proc getU32(offset: int): uint32 {.inline.} =
+    result =
+      (uint32(outboxRegion[offset + 0]) shl 0) or
+      (uint32(outboxRegion[offset + 1]) shl 8) or
+      (uint32(outboxRegion[offset + 2]) shl 16) or
+      (uint32(outboxRegion[offset + 3]) shl 24)
 
-proc putU32(offset: int, value: uint32) {.inline.} =
-  outboxRegion[offset + 0] = Byte((value shr 0) and 0xFF'u32)
-  outboxRegion[offset + 1] = Byte((value shr 8) and 0xFF'u32)
-  outboxRegion[offset + 2] = Byte((value shr 16) and 0xFF'u32)
-  outboxRegion[offset + 3] = Byte((value shr 24) and 0xFF'u32)
+  proc putU32(offset: int, value: uint32) {.inline.} =
+    outboxRegion[offset + 0] = Byte((value shr 0) and 0xFF'u32)
+    outboxRegion[offset + 1] = Byte((value shr 8) and 0xFF'u32)
+    outboxRegion[offset + 2] = Byte((value shr 16) and 0xFF'u32)
+    outboxRegion[offset + 3] = Byte((value shr 24) and 0xFF'u32)
 
-proc outboxHead(): uint32 {.inline.} = getU32(HeadOffset)
-proc outboxTail(): uint32 {.inline.} = getU32(TailOffset)
-proc setOutboxHead(v: uint32) {.inline.} = putU32(HeadOffset, v)
-proc setOutboxTail(v: uint32) {.inline.} = putU32(TailOffset, v)
+  proc outboxHead(): uint32 {.inline.} = getU32(HeadOffset)
+  proc outboxTail(): uint32 {.inline.} = getU32(TailOffset)
+  proc setOutboxHead(v: uint32) {.inline.} = putU32(HeadOffset, v)
+  proc setOutboxTail(v: uint32) {.inline.} = putU32(TailOffset, v)
 
-proc initOutbox() {.inline.} =
-  setOutboxHead(0'u32)
-  setOutboxTail(0'u32)
-  putU32(CapOffset, uint32(OutboxCap))
+  proc initOutbox() {.inline.} =
+    setOutboxHead(0'u32)
+    setOutboxTail(0'u32)
+    putU32(CapOffset, uint32(OutboxCap))
 
-proc ringUsed(head, tail, cap: uint32): uint32 {.inline.} =
-  if tail >= head:
-    tail - head
-  else:
-    cap - (head - tail)
+  proc ringUsed(head, tail, cap: uint32): uint32 {.inline.} =
+    if tail >= head:
+      tail - head
+    else:
+      cap - (head - tail)
 
-proc ringFree(head, tail, cap: uint32): uint32 {.inline.} =
-  cap - ringUsed(head, tail, cap) - 1'u32
+  proc ringFree(head, tail, cap: uint32): uint32 {.inline.} =
+    cap - ringUsed(head, tail, cap) - 1'u32
 
-proc ringWriteByte(tail: var uint32, b: Byte) {.inline.} =
-  let idx = OutboxHeaderSize + int(tail)
-  outboxRegion[idx] = b
-  tail = (tail + 1'u32) mod uint32(OutboxCap)
+  proc ringWriteByte(tail: var uint32, b: Byte) {.inline.} =
+    let idx = OutboxHeaderSize + int(tail)
+    outboxRegion[idx] = b
+    tail = (tail + 1'u32) mod uint32(OutboxCap)
 
-proc enqueueOutbox*(payload: openArray[Byte]): bool =
-  let cap = uint32(OutboxCap)
-  let head = outboxHead()
-  var tail = outboxTail()
-  let needed = uint32(4 + payload.len)
+  proc enqueueOutbox*(payload: openArray[Byte]): bool =
+    let cap = uint32(OutboxCap)
+    let head = outboxHead()
+    var tail = outboxTail()
+    let needed = uint32(4 + payload.len)
 
-  if ringFree(head, tail, cap) < needed:
-    return false
+    if ringFree(head, tail, cap) < needed:
+      return false
 
-  let len = uint32(payload.len)
-  ringWriteByte(tail, Byte((len shr 0) and 0xFF'u32))
-  ringWriteByte(tail, Byte((len shr 8) and 0xFF'u32))
-  ringWriteByte(tail, Byte((len shr 16) and 0xFF'u32))
-  ringWriteByte(tail, Byte((len shr 24) and 0xFF'u32))
+    let len = uint32(payload.len)
+    ringWriteByte(tail, Byte((len shr 0) and 0xFF'u32))
+    ringWriteByte(tail, Byte((len shr 8) and 0xFF'u32))
+    ringWriteByte(tail, Byte((len shr 16) and 0xFF'u32))
+    ringWriteByte(tail, Byte((len shr 24) and 0xFF'u32))
 
-  for i in 0 ..< payload.len:
-    ringWriteByte(tail, payload[i])
+    for i in 0 ..< payload.len:
+      ringWriteByte(tail, payload[i])
 
-  setOutboxTail(tail)
-  result = true
+    setOutboxTail(tail)
+    result = true
 
-proc dequeueOutbox*(): seq[Byte] =
-  let cap = uint32(OutboxCap)
-  var head = outboxHead()
-  let tail = outboxTail()
+  proc dequeueOutbox*(): seq[Byte] =
+    let cap = uint32(OutboxCap)
+    var head = outboxHead()
+    let tail = outboxTail()
 
-  if head == tail:
-    return @[]
+    if head == tail:
+      return @[]
 
-  var len: uint32 = 0
-  for i in 0 .. 3:
-    let idx = OutboxHeaderSize + int(head)
-    len = len or (uint32(outboxRegion[idx]) shl (i * 8))
-    head = (head + 1'u32) mod cap
+    var len: uint32 = 0
+    for i in 0 .. 3:
+      let idx = OutboxHeaderSize + int(head)
+      len = len or (uint32(outboxRegion[idx]) shl (i * 8))
+      head = (head + 1'u32) mod cap
 
-  result = newSeq[Byte](int(len))
-  for i in 0 ..< int(len):
-    let idx = OutboxHeaderSize + int(head)
-    result[i] = outboxRegion[idx]
-    head = (head + 1'u32) mod cap
+    result = newSeq[Byte](int(len))
+    for i in 0 ..< int(len):
+      let idx = OutboxHeaderSize + int(head)
+      result[i] = outboxRegion[idx]
+      head = (head + 1'u32) mod cap
 
-  setOutboxHead(head)
+    setOutboxHead(head)
+else:
+  proc jsOutboxReset() {.importjs: "__wg_vf_outbox_reset()".}
+  proc jsOutboxPushSeq(payload: seq[Byte]) {.importjs: "__wg_vf_outbox_push(#)".}
+
+  proc initOutbox() {.inline.} =
+    jsOutboxReset()
+
+  proc enqueueOutbox*(payload: seq[Byte]): bool =
+    jsOutboxPushSeq(payload)
+    true
+
+  proc enqueueOutbox*(payload: openArray[Byte]): bool =
+    let msg = @payload
+    jsOutboxPushSeq(msg)
+    true
 
 proc emitText*(msg: string) {.inline.} =
   var data = newSeq[Byte](msg.len)
@@ -210,92 +230,92 @@ else:
       return onMessageCb(data)
     0'u32
 
-  # Nim's JS target does not expose a stable linear-memory ABI like WASM.
-  # The emitted JS wrapper calls these private helpers via Nim symbol substitution
-  # instead of reaching into compiler-mangled globals such as outboxRegion.
-  proc jsOutboxHasMessages(): bool =
-    outboxHead() != outboxTail()
-
-  proc jsOutboxPop(): seq[Byte] =
-    dequeueOutbox()
-
 when defined(js):
   {.emit: """
-export function createVignette() {
-  const outbox = [];
+const __wg_vf_outbox = [];
+let __wg_vf_outbox_head = 0;
 
-  function asBytes(payload) {
+function __wg_vf_outbox_reset() {
+  __wg_vf_outbox.length = 0;
+  __wg_vf_outbox_head = 0;
+}
+
+function __wg_vf_outbox_push(payload) {
+  __wg_vf_outbox.push(new Uint8Array(payload));
+}
+
+function __wg_vf_outbox_has_messages() {
+  return __wg_vf_outbox_head < __wg_vf_outbox.length;
+}
+
+function __wg_vf_outbox_pop() {
+  if (__wg_vf_outbox_head >= __wg_vf_outbox.length) return null;
+  const msg = __wg_vf_outbox[__wg_vf_outbox_head++];
+  if (__wg_vf_outbox_head >= __wg_vf_outbox.length) {
+    __wg_vf_outbox.length = 0;
+    __wg_vf_outbox_head = 0;
+  } else if (__wg_vf_outbox_head >= 64 && __wg_vf_outbox_head * 2 >= __wg_vf_outbox.length) {
+    __wg_vf_outbox.splice(0, __wg_vf_outbox_head);
+    __wg_vf_outbox_head = 0;
+  }
+  return msg;
+}
+
+export function createVignette() {
+  function asByteSeq(payload) {
+    if (Array.isArray(payload)) return payload;
     if (payload instanceof Uint8Array) return payload;
     if (payload instanceof ArrayBuffer) return new Uint8Array(payload);
     if (ArrayBuffer.isView(payload)) {
       return new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
     }
-    if (Array.isArray(payload)) return Uint8Array.from(payload);
-    return new Uint8Array(0);
-  }
-
-  // WASM hosts can read the real Nim outbox through exported linear memory.
-  // Nim's JS output keeps that outbox in generated module state with unstable
-  // symbol names, so this adapter copies messages into the JS Vignette outbox
-  // after every entry point that may enqueue messages.
-  function syncOutbox() {
-    while (`jsOutboxHasMessages`()) {
-      const payload = `jsOutboxPop`();
-      if (!payload || payload.length === 0) break;
-      outbox.push(Uint8Array.from(payload));
-    }
+    return [];
   }
 
   return {
     async init(initPayload) {
-      const bytes = asBytes(initPayload);
-      const seqBytes = Array.from(bytes);
+      const seqBytes = asByteSeq(initPayload);
       if (typeof vf_init_message === 'function') {
         vf_init_message(seqBytes);
       } else if (typeof vf_init === 'function') {
-        vf_init(0, bytes.length >>> 0);
+        vf_init(0, seqBytes.length >>> 0);
       }
-      syncOutbox();
     },
 
     async tick(dtUs, frameId) {
       if (typeof vf_tick === 'function') {
         vf_tick((dtUs >>> 0), (frameId >>> 0));
       }
-      syncOutbox();
     },
 
     async fixedTick(stepUs, stepIndex) {
       if (typeof vf_fixed_tick === 'function') {
         vf_fixed_tick((stepUs >>> 0), (stepIndex >>> 0));
       }
-      syncOutbox();
     },
 
     async handleMessage(payload) {
-      const bytes = asBytes(payload);
-      const seqBytes = Array.from(bytes);
+      const seqBytes = asByteSeq(payload);
       if (typeof vf_handle_message_js === 'function') {
         vf_handle_message_js(seqBytes);
       } else if (typeof vf_handle_message === 'function') {
-        vf_handle_message(0, bytes.length >>> 0);
+        vf_handle_message(0, seqBytes.length >>> 0);
       }
-      syncOutbox();
     },
 
     async shutdown() {
       if (typeof vf_shutdown === 'function') {
         vf_shutdown();
       }
-      outbox.length = 0;
+      __wg_vf_outbox_reset();
     },
 
     outboxHasMessages() {
-      return outbox.length > 0;
+      return __wg_vf_outbox_has_messages();
     },
 
     outboxPop() {
-      const msg = outbox.shift();
+      const msg = __wg_vf_outbox_pop();
       if (!msg) throw new Error('Outbox is empty');
       return msg;
     },
