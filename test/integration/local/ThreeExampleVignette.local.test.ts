@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 
 import { LocalVignetteHost, decodeEnvelope, MessageKind } from '../../../src';
 import { decodeJsonPayload, encodeJsonPayload } from '../../codec';
@@ -19,7 +20,7 @@ type AppMessage =
   | { type: string };
 
 const THREE_TS_VIGNETTE_URL = new URL(
-  '../../../examples/three/vignette/ts/out/three-vignette.js',
+  '../../../examples/three/vignette/ts/three-vignette.ts',
   import.meta.url,
 ).href;
 
@@ -27,6 +28,10 @@ const THREE_WASM_VIGNETTE_URL = new URL(
   '../../../examples/three/vignette/nim/out/three-vignette_wasm.js',
   import.meta.url,
 ).href;
+
+const HAS_THREE_WASM_BUILD = existsSync(
+  new URL('../../../examples/three/vignette/nim/out/three-vignette_wasm.js', import.meta.url),
+);
 
 const activeHosts = new Set<LocalVignetteHost>();
 
@@ -45,7 +50,7 @@ describe('Three example local vignette integration', () => {
     });
   });
 
-  test('wasm vignette emits changing state updates over time', async () => {
+  test.skipIf(!HAS_THREE_WASM_BUILD)('wasm vignette emits changing state updates over time', async () => {
     await expectAnimatedState({
       vignetteType: 'wasm',
       moduleUrl: THREE_WASM_VIGNETTE_URL,
