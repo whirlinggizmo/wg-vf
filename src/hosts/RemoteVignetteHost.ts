@@ -1,8 +1,8 @@
-import type { Vignette } from '../vignettes/Vignette';
-import { decodeEnvelope } from '../envelope/decode';
-import { MessageKind, SystemType } from '../envelope/types';
-import { decodeInitPayload } from '../envelope/systemPayloads';
-import { BaseVignetteHost, type ResolvedInitPayload } from './BaseVignetteHost';
+import type { Vignette } from '../vignettes/Vignette.js';
+import { decodeEnvelope } from '../envelope/decode.js';
+import { MessageKind, SystemType } from '../envelope/types.js';
+import { decodeInitPayload } from '../envelope/systemPayloads.js';
+import { BaseVignetteHost, type ResolvedInitPayload } from './BaseVignetteHost.js';
 
 interface BytePeer {
   send(bytes: Uint8Array): void;

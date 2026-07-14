@@ -1,18 +1,18 @@
-import { decodeEnvelope } from '../envelope/decode';
-import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
-import { decodeErrorPayload, decodePingPayload, decodeReadyPayload } from '../envelope/systemPayloads';
-import { MessageKind, SystemType } from '../envelope/types';
-import { LocalVignetteHost } from '../hosts/LocalVignetteHost';
-import { ReconnectingWebSocketTransport } from '../transports/ReconnectingWebSocketTransport';
-import type { Transport } from '../transports/Transport';
+import { decodeEnvelope } from '../envelope/decode.js';
+import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode.js';
+import { decodeErrorPayload, decodePingPayload, decodeReadyPayload } from '../envelope/systemPayloads.js';
+import { MessageKind, SystemType } from '../envelope/types.js';
+import { LocalVignetteHost } from '../hosts/LocalVignetteHost.js';
+import { ReconnectingWebSocketTransport } from '../transports/ReconnectingWebSocketTransport.js';
+import type { Transport } from '../transports/Transport.js';
 import type {
   LocalVignetteBridgeConfig,
   RemoteVignetteBridgeConfig,
   VignetteBridgeRequest,
   VignetteBridgeWorkerMessage,
   VignetteBridgePingResult,
-} from './VignetteBridge';
-import type { VignetteHost } from '../hosts/VignetteHost';
+} from './VignetteBridge.js';
+import type { VignetteHost } from '../hosts/VignetteHost.js';
 
 type RemoteState = 'DISCONNECTED' | 'CONNECTING' | 'READY' | 'ERROR' | 'CLOSED';
 

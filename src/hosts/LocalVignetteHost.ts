@@ -1,6 +1,6 @@
-import type { Vignette, VignetteType } from '../vignettes/Vignette';
-import { decodeInitPayload } from '../envelope/systemPayloads';
-import { BaseVignetteHost, type ResolvedInitPayload } from './BaseVignetteHost';
+import type { Vignette, VignetteType } from '../vignettes/Vignette.js';
+import { decodeInitPayload } from '../envelope/systemPayloads.js';
+import { BaseVignetteHost, type ResolvedInitPayload } from './BaseVignetteHost.js';
 
 interface LocalVignetteHostOptions {
   vignetteFactory?: () => Vignette | Promise<Vignette>;

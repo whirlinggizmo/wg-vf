@@ -2,11 +2,11 @@ import {
   type Vignette,
   type VignetteType,
   instantiateVignetteFromModuleUrl,
-} from '../vignettes/Vignette';
-import type { VignetteHost } from './VignetteHost';
-import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode';
-import { encodeErrorPayload, encodeReadyPayload } from '../envelope/systemPayloads';
-import { SystemType } from '../envelope/types';
+} from '../vignettes/Vignette.js';
+import type { VignetteHost } from './VignetteHost.js';
+import { encodeAppEnvelope, encodeSystemEnvelope } from '../envelope/encode.js';
+import { encodeErrorPayload, encodeReadyPayload } from '../envelope/systemPayloads.js';
+import { SystemType } from '../envelope/types.js';
 
 type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
 const HANDLED_HOST_ERROR = Symbol('handledHostError');

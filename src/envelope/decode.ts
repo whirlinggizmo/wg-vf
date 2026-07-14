@@ -1,4 +1,4 @@
-import { MessageKind, type Envelope } from './types';
+import { MessageKind, type Envelope } from './types.js';
 
 const HEADER_SIZE = 8;
 

@@ -5,7 +5,7 @@ import {
   type AppEnvelope,
   type Envelope,
   type SystemEnvelope,
-} from './types';
+} from './types.js';
 
 const HEADER_SIZE = 8;
 

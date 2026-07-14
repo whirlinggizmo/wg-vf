@@ -1,4 +1,4 @@
-import type { VignetteType } from '../vignettes/Vignette';
+import type { VignetteType } from '../vignettes/Vignette.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

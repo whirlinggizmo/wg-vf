@@ -1,4 +1,4 @@
-import { createWasmInstance, type WasmVignetteInstance } from './WasmVignette';
+import { createWasmInstance, type WasmVignetteInstance } from './WasmVignette.js';
 
 export type VignetteType = 'js' | 'wasm';
 

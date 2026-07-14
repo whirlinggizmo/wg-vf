@@ -1,4 +1,4 @@
-import type { Transport } from './Transport';
+import type { Transport } from './Transport.js';
 
 export interface ReconnectingWebSocketTransportOptions {
   url: string;
