@@ -16,6 +16,11 @@ export {
   type HostState,
 } from './hosts/VignetteHost.js';
 export { SessionManager, type SessionManagerOptions } from './hosts/SessionManager.js';
+export {
+  runWorkerHost,
+  type WorkerHostOptions,
+  type WorkerHostHandle,
+} from './hosts/workerHost.js';
 export { FixedStepEngine } from './hosts/FixedStepEngine.js';
 export { HostLoop, type HostLoopVignette, type HostLoopHooks } from './hosts/HostLoop.js';
 export { PeerRegistry, PeerIdExhaustedError } from './hosts/PeerRegistry.js';
@@ -24,6 +29,10 @@ export { type Clock, SystemClock } from './hosts/Clock.js';
 // Transports (byte pipes; Part II §8).
 export type { Transport } from './transports/Transport.js';
 export type { BytePeer } from './transports/BytePeer.js';
+export {
+  messagePortBytePeer,
+  type MessagePortLike,
+} from './transports/MessagePortBytePeer.js';
 export { WebSocketTransport } from './transports/WebSocketTransport.js';
 export {
   ReconnectingWebSocketTransport,
