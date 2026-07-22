@@ -16,8 +16,13 @@ and in whatever language it is hosted.
 
 ## Install
 
+Installed straight from git (no npm registry needed — the package's `prepare`
+script builds `dist` on install; requires Node, but no wasm/native toolchain):
+
 ```sh
-npm install @whirlinggizmo/wg-vf
+npm install whirlinggizmo/wg-vf                          # GitHub shorthand
+# or: npm install git+https://github.com/whirlinggizmo/wg-vf.git
+# or pin a tag/branch/commit:  npm install whirlinggizmo/wg-vf#<ref>
 ```
 
 ## Write a vignette (TypeScript)
