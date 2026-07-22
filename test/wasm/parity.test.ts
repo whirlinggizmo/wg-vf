@@ -1,30 +1,35 @@
-// PAR (test plan §5): binding parity. The `counter` vignette implemented twice
-// — TS (src/testing/vignettes.ts) and Nim-compiled-to-WASM (counter.nim via
-// wg_vf.h) — driven with an identical call sequence must produce byte-identical
-// outbox tuples and frame buffers. This proves the WASM binding renders the ABI
-// without adding or dropping semantics.
-//
-// Requires the WASM build (cd test/wasm && nim c -d:emscripten counter.nim).
-// If the artifact is absent the suite skips rather than fails.
+// PAR + ABI-18 (test plan §5, §2.3): the reference vignettes implemented twice
+// — TS and Nim-compiled-to-WASM via wg_vf.h — must be observably identical, and
+// a WASM failure must be sim-fatal (unlike a JS peer-fault). Requires the WASM
+// build (npm run test:wasm:build); absent artifacts skip rather than fail.
 
 import { describe, expect, test } from 'bun:test';
 
 import { createWasmInstance } from '../../src/vignettes/WasmVignette.js';
-import { CounterVignette } from '../../src/testing/vignettes.js';
+import { CounterVignette, EchoVignette } from '../../src/testing/vignettes.js';
 import type { OutboxEntry, Vignette } from '../../src/vignettes/Vignette.js';
-import { VignetteHost } from '../../src/hosts/VignetteHost.js';
+import { VignetteHost, type HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
 import { HostPeer } from '../../src/testing/HostPeer.js';
 import { readFrameHeader } from '../../src/envelope/index.js';
 
-// Top-level await: load the emscripten module factory if it was built.
-let factory: (() => Promise<unknown>) | null = null;
-try {
-  const mod = (await import('./out/counter_wasm.js')) as { default: () => Promise<unknown> };
-  factory = mod.default;
-} catch {
-  factory = null;
+type Factory = () => Promise<unknown>;
+
+async function loadFactory(name: string): Promise<Factory | null> {
+  try {
+    return ((await import(`./out/${name}_wasm.js`)) as { default: Factory }).default;
+  } catch {
+    return null;
+  }
+}
+
+const counterF = await loadFactory('counter');
+const echoF = await loadFactory('echo');
+const faultyF = await loadFactory('faulty');
+
+async function wasmVignette(factory: Factory): Promise<Vignette> {
+  return createWasmInstance((await factory()) as never);
 }
 
 function drain(v: Vignette): OutboxEntry[] {
@@ -41,24 +46,19 @@ function sameEntries(a: OutboxEntry[], b: OutboxEntry[]): void {
   }
 }
 
-function sameFrame(a: Vignette, b: Vignette): void {
-  const fa = a.currentFrame?.() ?? null;
-  const fb = b.currentFrame?.() ?? null;
-  expect(fb?.seq).toBe(fa?.seq);
-  expect(Array.from(fb?.body ?? [])).toEqual(Array.from(fa?.body ?? []));
+function hostEntry(create: HostVignetteEntry['create']): HostVignetteEntry {
+  return { vignetteId: 'sim', version: '1.0.0', fixedStepUs: 16_666, maxSubsteps: 4, maxPeers: 8, create };
 }
 
-describe('PAR: counter TS vs WASM', () => {
-  test.skipIf(!factory)('identical outbox + frames across an awkward call sequence', async () => {
+describe('PAR / ABI-18: TS vs WASM bindings', () => {
+  test.skipIf(!counterF)('PAR-02 counter: identical outbox + frames across a call sequence', async () => {
     const ts: Vignette = new CounterVignette();
-    const wasm: Vignette = createWasmInstance((await factory!()) as never);
+    const wasm = await wasmVignette(counterF!);
 
     ts.init(new Uint8Array());
     wasm.init(new Uint8Array());
     sameEntries(drain(ts), drain(wasm));
 
-    // 25 iterations of (tick, fixedTick) with prime-ish dt — crosses the
-    // every-10-steps broadcast boundary twice.
     for (let i = 0; i < 25; i++) {
       const dt = 997 + i;
       ts.tick(dt, i);
@@ -68,34 +68,33 @@ describe('PAR: counter TS vs WASM', () => {
       ts.fixedTick(16_666, i);
       wasm.fixedTick(16_666, i);
       sameEntries(drain(ts), drain(wasm));
-      sameFrame(ts, wasm);
+
+      const fa = ts.currentFrame?.() ?? null;
+      const fb = wasm.currentFrame?.() ?? null;
+      expect(fb?.seq).toBe(fa?.seq);
+      expect(Array.from(fb?.body ?? [])).toEqual(Array.from(fa?.body ?? []));
     }
   });
 
-  test.skipIf(!factory)('peer callbacks and a handleMessage are ABI-compatible (no traps)', async () => {
-    const wasm: Vignette = createWasmInstance((await factory!()) as never);
-    wasm.init(new Uint8Array());
-    // These must not trap and must leave the outbox well-formed (counter emits
-    // nothing on these ops, matching TS).
-    wasm.peerJoined(1);
-    wasm.peerLeft(2, 0);
-    wasm.handleMessage(1, new Uint8Array([1, 2, 3]));
-    expect(drain(wasm)).toEqual([]);
+  test.skipIf(!echoF)('PAR-01 echo: identical outbox tuples for TS vs WASM', async () => {
+    const ts: Vignette = new EchoVignette();
+    const wasm = await wasmVignette(echoF!);
+    const vectors: Array<[number, number[]]> = [
+      [3, [1, 2, 3]],
+      [7, [42]],
+      [1, []],
+      [65535, [9, 8, 7, 6]],
+    ];
+    for (const [sender, bytes] of vectors) {
+      ts.handleMessage(sender, new Uint8Array(bytes));
+      wasm.handleMessage(sender, new Uint8Array(bytes));
+      sameEntries(drain(ts), drain(wasm));
+    }
   });
 
-  test.skipIf(!factory)('a WASM vignette runs through VignetteHost end-to-end', async () => {
+  test.skipIf(!counterF)('a WASM vignette runs through VignetteHost end-to-end', async () => {
     const clock = new VirtualClock(0);
-    const host = new VignetteHost(
-      {
-        vignetteId: 'sim',
-        version: '1.0.0',
-        fixedStepUs: 16_666,
-        maxSubsteps: 4,
-        maxPeers: 8,
-        create: async () => createWasmInstance((await factory!()) as never),
-      },
-      clock,
-    );
+    const host = new VignetteHost(hostEntry(() => wasmVignette(counterF!)), clock);
     const { a, b } = createLoopbackPipe();
     host.connect(a);
     const peer = new HostPeer(b);
@@ -110,13 +109,35 @@ describe('PAR: counter TS vs WASM', () => {
     const frame = peer.frames().at(-1);
     expect(frame).toBeDefined();
     const fh = readFrameHeader(frame!.payload)!;
-    const counter = new DataView(fh.body.buffer, fh.body.byteOffset).getUint32(4, true);
-    expect(counter).toBe(1); // one fixedTick ran, in the WASM sim
+    expect(new DataView(fh.body.buffer, fh.body.byteOffset).getUint32(4, true)).toBe(1);
   });
 
-  if (!factory) {
-    test('WASM artifact not built — parity skipped', () => {
-      console.warn('[PAR] out/counter_wasm.js missing; run: cd test/wasm && nim c -d:emscripten counter.nim');
+  test.skipIf(!faultyF)('ABI-18: a WASM failure in handleMessage is sim-fatal (not peer-fault)', async () => {
+    const clock = new VirtualClock(0);
+    const host = new VignetteHost(hostEntry(() => wasmVignette(faultyF!)), clock);
+    const { a, b } = createLoopbackPipe();
+    host.connect(a);
+    const peer = new HostPeer(b);
+
+    peer.init('sim');
+    await host.whenIdle();
+    expect(peer.ready()?.clientId).toBe(1);
+
+    // Benign message: the sim survives (contrast: a WASM peer cannot be evicted).
+    peer.app(new Uint8Array([1]));
+    await host.whenIdle();
+    expect(host.getState()).toBe('READY');
+
+    // Fault command 0xFF → nonzero return → sim-fatal: broadcast Error + shutdown.
+    peer.app(new Uint8Array([0xff]));
+    await host.whenIdle();
+    expect(host.getState()).toBe('CLOSED');
+    expect(peer.errors().length).toBeGreaterThan(0);
+  });
+
+  if (!counterF) {
+    test('WASM artifacts not built — parity skipped', () => {
+      console.warn('[PAR] run: npm run test:wasm:build');
       expect(true).toBe(true);
     });
   }

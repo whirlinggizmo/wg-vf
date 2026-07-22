@@ -8,6 +8,7 @@
 
 import {
   PeerLeftReason,
+  SimFatalError,
   type FrameView,
   type OutboxEntry,
   type Vignette,
@@ -57,6 +58,9 @@ const OUTBOX_HEADER_SIZE = 12; // head u32, tail u32, cap u32
 
 class WasmVignette implements Vignette {
   private readonly outbox: OutboxEntry[] = [];
+  // Once trapped, the instance's memory is untrustworthy — refuse all further
+  // calls and keep every failure sim-fatal (§2.4).
+  private trapped = false;
 
   constructor(
     private readonly getHeapU8: HeapU8Provider,
@@ -113,11 +117,27 @@ class WasmVignette implements Vignette {
     return { seq, body: this.getHeapU8().slice(offset, offset + len) };
   }
 
-  private callSimple(fn: WasmExportFn, name: string, ...args: number[]): void {
-    const rc = fn(...args) >>> 0;
-    if (rc !== 0) {
-      throw new Error(`WASM ${name} returned ${rc}`);
+  /** Invoke an export, converting any trap or nonzero return to SimFatalError. */
+  private invoke(fn: WasmExportFn, name: string, args: number[]): void {
+    if (this.trapped) {
+      throw new SimFatalError(`WASM instance already trapped (before ${name})`);
     }
+    let rc: number;
+    try {
+      rc = fn(...args) >>> 0;
+    } catch (err) {
+      // A WASM trap surfaces as a thrown RuntimeError — always sim-fatal.
+      this.trapped = true;
+      throw new SimFatalError(`WASM ${name} trapped: ${String(err)}`);
+    }
+    if (rc !== 0) {
+      this.trapped = true;
+      throw new SimFatalError(`WASM ${name} returned ${rc}`);
+    }
+  }
+
+  private callSimple(fn: WasmExportFn, name: string, ...args: number[]): void {
+    this.invoke(fn, name, args);
     this.drainOutboxRing();
   }
 
@@ -130,14 +150,11 @@ class WasmVignette implements Vignette {
   ): void {
     const ptr = this.exports.vf_mem_alloc(payload.length >>> 0) >>> 0;
     if (ptr === 0 && payload.length > 0) {
-      throw new Error('WASM allocation failed');
+      throw new SimFatalError('WASM allocation failed');
     }
     this.getHeapU8().set(payload, ptr);
     try {
-      const rc = fn(...prefix, ptr, payload.length >>> 0) >>> 0;
-      if (rc !== 0) {
-        throw new Error(`WASM ${name} returned ${rc}`);
-      }
+      this.invoke(fn, name, [...prefix, ptr, payload.length >>> 0]);
       this.drainOutboxRing();
     } finally {
       this.exports.vf_mem_free?.(ptr);

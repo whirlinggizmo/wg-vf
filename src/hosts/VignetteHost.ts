@@ -16,6 +16,7 @@ import { PeerRegistry } from './PeerRegistry.js';
 import type { BytePeer } from '../transports/BytePeer.js';
 import {
   PeerLeftReason,
+  SimFatalError,
   type FrameView,
   type Vignette,
 } from '../vignettes/Vignette.js';
@@ -436,8 +437,13 @@ export class VignetteHost {
     try {
       await this.vignette!.handleMessage(sender, payload);
     } catch (err) {
-      // A throw from handleMessage is attributed to the sender (Part I §2.4).
-      this.peerFault(conn, err);
+      // A binding may force sim-fatal (a WASM trap is untrustworthy, ABI-18);
+      // otherwise a handleMessage throw is attributed to the sender (ABI-15).
+      if (err instanceof SimFatalError) {
+        this.simFatal(err);
+      } else {
+        this.peerFault(conn, err);
+      }
       return;
     }
     try {

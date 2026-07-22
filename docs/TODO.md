@@ -58,9 +58,17 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 - [x] `Vignette`: `handleMessage(senderId, payload)`, `peerJoined(id)`, `peerLeft(id, reason)`, `outboxPop(): { targetId, payload }`, `currentFrame()` accessor, `PeerLeftReason`.
 - [x] WASM `vf_*`: `vf_handle_message(sender,ptr,len)`, `vf_peer_joined`, `vf_peer_left`, u16 target-prefixed outbox, `vf_frame_offset/len/seq`. Nim glue in `src/vignettes/wasm/vignette.nim`; host loader `src/vignettes/WasmVignette.ts`.
 - [x] `wg_vf.h`: canonical C API (`src/vignettes/wasm/`) — one Nim source → wasm32 (emscripten). Reference `counter` builds via `npm run test:wasm:build`.
-- [x] **(gate, partial)** PAR-02 green: Nim→WASM `counter` byte-matches TS across 25 iters; peer callbacks/handleMessage trap-free; runs through `VignetteHost` end-to-end.
-- [ ] Remaining PAR: `echo` reference vignette (PAR-01); native `.so` build + `wg_vf.h` compiles clean −Wall (PAR-05); WASM trap → sim-fatal path (ABI-18); oversized-inbound staging rejection (PAR-04).
-- [ ] **DET-03**: drive the WASM `counter` through the full cross-host determinism suite (needs T-SCRIPT + trace capture).
+- [x] **(gate)** PAR-01 (echo), PAR-02 (counter): Nim→WASM byte-matches TS; peer callbacks/handleMessage trap-free; WASM vignette runs through `VignetteHost` end-to-end.
+- [x] **ABI-18**: `SimFatalError` marker on the ABI; a WASM failure (nonzero return / trap) in `handleMessage` is sim-fatal, not peer-fault. Verified TS (conformance) + WASM (`faulty.nim`).
+- [x] **PAR-05**: `wg_vf.h` uses `uintptr_t` for offsets (32-bit wasm / 64-bit native); compiles clean −Wall −Wextra −std=c11; the same `counter.nim` built native `.so` byte-matches TS via a `bun:ffi` harness. `npm run test:native:build`.
+- [ ] PAR-04: oversized-inbound rejection at the WASM staging layer (host-side ENV-25 already caps inbound; document the binding-layer behavior).
+
+## Cross-host determinism (test plan §4) — DET-03/04 DONE
+
+- [x] **T-LOSSY** (`lossyPipe`): drops Frame envelopes at a seeded rate, System/App untouched.
+- [x] **DET-03**: `counter` TS and WASM produce byte-identical frame+App traces through the host over a scripted pump sequence — cross-binding determinism.
+- [x] **DET-04**: frame loss changes only the lossy peer's received frames; the reliable App/event stream is identical and the sim is unaffected.
+- [ ] DET-01/02/05: full T-SCRIPT (join/leave churn, message bursts) + overload (drop-time) trace equality across Local vs Remote transports.
 
 ## Phase 4 — Peer registry & session (Appendix A #3/#5) — CORE DONE
 

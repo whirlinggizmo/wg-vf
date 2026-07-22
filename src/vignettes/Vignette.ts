@@ -13,6 +13,20 @@ export enum PeerLeftReason {
   TimedOut = 2,
 }
 
+/**
+ * Thrown by a binding to force **sim-fatal** handling even from
+ * `handleMessage` (Part I §2.4). A JS vignette throwing an ordinary Error in
+ * `handleMessage` is a *peer* fault; a WASM trap is always sim-fatal, since a
+ * trapped instance's memory is untrustworthy — the WASM binding surfaces that
+ * by throwing this (ABI-18 vs ABI-15).
+ */
+export class SimFatalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SimFatalError';
+  }
+}
+
 /** One outbox entry. `targetId = 0` broadcasts to all attached peers (§1.3). */
 export interface OutboxEntry {
   targetId: number;

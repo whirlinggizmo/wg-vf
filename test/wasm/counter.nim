@@ -20,9 +20,10 @@ proc putLE(buf: var openArray[Byte], off: int, v: uint32) =
 proc onInit(data: openArray[Byte]) =
   discard data
 
-proc onMessage(senderId: uint32, data: openArray[Byte]) =
+proc onMessage(senderId: uint32, data: openArray[Byte]): uint32 =
   discard senderId
   discard data
+  0'u32
 
 proc onTick(dtUs, frameId: uint32) =
   discard frameId

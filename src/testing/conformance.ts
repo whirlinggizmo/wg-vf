@@ -11,7 +11,7 @@ import type { HostState, HostVignetteEntry } from '../hosts/VignetteHost.js';
 import type { BytePeer } from '../transports/BytePeer.js';
 import type { Vignette } from '../vignettes/Vignette.js';
 import { BaseVignette } from '../vignettes/BaseVignette.js';
-import { PeerLeftReason } from '../vignettes/Vignette.js';
+import { PeerLeftReason, SimFatalError } from '../vignettes/Vignette.js';
 import { ErrorCode, readFrameHeader } from '../envelope/index.js';
 import { VirtualClock } from './VirtualClock.js';
 import { createLoopbackPipe } from './LoopbackBytePipe.js';
@@ -288,6 +288,27 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     await host.pump();
     assert(p.errors().length > 0, 'Error broadcast');
     eq(host.getState(), 'CLOSED', 'shutdown');
+  });
+
+  add('ABI-18', 'SimFatalError from handleMessage is sim-fatal, not peer-fault', async () => {
+    class FatalOnCommand extends BaseVignette {
+      override handleMessage(_sender: number, payload: Uint8Array): void {
+        if (payload[0] === 0xff) throw new SimFatalError('untrustworthy');
+      }
+    }
+    const { host, connect } = scenario(makeHost, () => new FatalOnCommand());
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    // Ordinary bytes: sim survives.
+    p.app(new Uint8Array([1]));
+    await host.whenIdle();
+    eq(host.getState(), 'READY', 'survives benign message');
+    // Fatal marker: broadcast Error + shutdown (contrast ABI-15 peer-fault).
+    p.app(new Uint8Array([0xff]));
+    await host.whenIdle();
+    eq(host.getState(), 'CLOSED', 'sim-fatal');
+    assert(p.errors().length > 0, 'Error broadcast');
   });
 
   add('ABI-17', 'throw in init → Error, not READY, later Join → NotProvisioned', async () => {

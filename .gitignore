@@ -2,5 +2,5 @@ node_modules/
 dist/
 build/
 out
-.nimcache
+.nimcache*
 src/vignettes/vignette.js

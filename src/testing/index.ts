@@ -14,6 +14,7 @@ export {
   type LoopbackPipe,
   type LoopbackOptions,
 } from './LoopbackBytePipe.js';
+export { lossyPipe, type LossyOptions } from './LossyPipe.js';
 export {
   EchoVignette,
   CounterVignette,

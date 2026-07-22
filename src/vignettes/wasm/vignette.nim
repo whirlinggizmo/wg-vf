@@ -21,7 +21,8 @@ const
 type
   Byte* = uint8
   VignetteInitHandler* = proc(data: openArray[Byte]) {.nimcall.}
-  VignetteMessageHandler* = proc(senderId: uint32, data: openArray[Byte]) {.nimcall.}
+  ## Returns 0 on success; nonzero is sim-fatal at the host (§2.4).
+  VignetteMessageHandler* = proc(senderId: uint32, data: openArray[Byte]): uint32 {.nimcall.}
   VignetteTickHandler* = proc(dtUs, frameId: uint32) {.nimcall.}
   VignetteFixedTickHandler* = proc(stepUs, stepIndex: uint32) {.nimcall.}
   VignettePeerJoinedHandler* = proc(clientId: uint32) {.nimcall.}
@@ -133,7 +134,7 @@ proc registerVignetteHandlers*(
   onShutdownCb = onShutdown
   initOutbox()
 
-proc readPayload(inPtr, len: uint32): seq[Byte] =
+proc readPayload(inPtr: uint, len: uint32): seq[Byte] =
   result = newSeq[Byte](int(len))
   if len == 0'u32:
     return
@@ -142,8 +143,10 @@ proc readPayload(inPtr, len: uint32): seq[Byte] =
     result[i] = src[i]
 
 # --- exported ABI (wg_vf.h) -------------------------------------------------
+# Pointers/offsets are `uint` (pointer-width): a 32-bit wasm offset or a 64-bit
+# native pointer. Ids/lengths/step values/return codes stay uint32.
 
-proc vf_init*(inPtr, inLen: uint32): uint32 {.exportc, cdecl, dynlib.} =
+proc vf_init*(inPtr: uint, inLen: uint32): uint32 {.exportc, cdecl, dynlib.} =
   initOutbox()
   let payload = readPayload(inPtr, inLen)
   if onInitCb != nil: onInitCb(payload)
@@ -157,9 +160,10 @@ proc vf_fixed_tick*(stepUs, stepIndex: uint32): uint32 {.exportc, cdecl, dynlib.
   if onFixedTickCb != nil: onFixedTickCb(stepUs, stepIndex)
   0'u32
 
-proc vf_handle_message*(senderId, inPtr, inLen: uint32): uint32 {.exportc, cdecl, dynlib.} =
+proc vf_handle_message*(senderId: uint32, inPtr: uint, inLen: uint32): uint32 {.exportc, cdecl, dynlib.} =
   let payload = readPayload(inPtr, inLen)
-  if onMessageCb != nil: onMessageCb(senderId, payload)
+  if onMessageCb != nil:
+    return onMessageCb(senderId, payload)
   0'u32
 
 proc vf_peer_joined*(clientId: uint32): uint32 {.exportc, cdecl, dynlib.} =
@@ -175,14 +179,14 @@ proc vf_shutdown*(): uint32 {.exportc, cdecl, dynlib.} =
   initOutbox()
   0'u32
 
-proc vf_outbox_offset*(): uint32 {.exportc, cdecl, dynlib.} =
-  cast[uint32](cast[uint](addr outboxRegion[0]))
+proc vf_outbox_offset*(): uint {.exportc, cdecl, dynlib.} =
+  cast[uint](addr outboxRegion[0])
 
 proc vf_outbox_capacity*(): uint32 {.exportc, cdecl, dynlib.} =
   uint32(OutboxCap)
 
-proc vf_frame_offset*(): uint32 {.exportc, cdecl, dynlib.} =
-  cast[uint32](cast[uint](addr frameRegion[0]))
+proc vf_frame_offset*(): uint {.exportc, cdecl, dynlib.} =
+  cast[uint](addr frameRegion[0])
 
 proc vf_frame_len*(): uint32 {.exportc, cdecl, dynlib.} =
   frameLen
@@ -190,9 +194,9 @@ proc vf_frame_len*(): uint32 {.exportc, cdecl, dynlib.} =
 proc vf_frame_seq*(): uint32 {.exportc, cdecl, dynlib.} =
   frameSeq
 
-proc vf_mem_alloc*(size: uint32): uint32 {.exportc, cdecl, dynlib.} =
-  cast[uint32](cast[uint](alloc(int(size))))
+proc vf_mem_alloc*(size: uint32): uint {.exportc, cdecl, dynlib.} =
+  cast[uint](alloc(int(size)))
 
-proc vf_mem_free*(memPtr: uint32) {.exportc, cdecl, dynlib.} =
-  if memPtr != 0'u32:
-    dealloc(cast[pointer](cast[uint](memPtr)))
+proc vf_mem_free*(memPtr: uint) {.exportc, cdecl, dynlib.} =
+  if memPtr != 0:
+    dealloc(cast[pointer](memPtr))
