@@ -14,7 +14,7 @@ import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
 import { HostPeer } from '../../src/testing/HostPeer.js';
 
-// The Nim→WASM three vignette (build artifact); null if not built.
+// The Nim-interop→WASM three vignette (build artifact); null if not built.
 let threeWasm: (() => Promise<unknown>) | null = null;
 try {
   threeWasm = ((await import('../../examples/three/vignette/nim/out/three-vignette_wasm.js')) as { default: () => Promise<unknown> }).default;
@@ -69,7 +69,7 @@ describe('three example vignette (v2)', () => {
     expect(host.getState()).toBe('READY');
   });
 
-  test.skipIf(!threeWasm)('the Nim→WASM three vignette behaves the same (green player on SpawnPlayer)', async () => {
+  test.skipIf(!threeWasm)('the Nim-interop→WASM three vignette behaves the same (green player on SpawnPlayer)', async () => {
     const clock = new VirtualClock(0);
     const host = VignetteHost.single(
       'three',

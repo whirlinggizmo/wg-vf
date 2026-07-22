@@ -154,47 +154,49 @@ The host's manifest entry for this module is just:
 
 ---
 
-## 6. Writing a vignette in Nim / C / Rust / Zig → WASM or native
+## 6. Writing a vignette in C (→ WASM or native)
 
-One source compiles to a browser-worker `.wasm` **and** a server `.so` from the
-same code, both exposing the [`wg_vf.h`](../src/vignettes/wasm/wg_vf.h) C ABI. You
-implement handler procs and register them; the framework glue owns the outbox
-ring buffer and the frame buffer.
+One source compiles to a browser-worker `.wasm` **and** a server `.so`, both via
+the shipped C glue. You implement handler callbacks and register them; the glue
+(`wg_vf.c`) owns the outbox ring buffer, the frame buffer, and the `vf_*` exports
+the host calls. Any C-ABI language works this way — C, Rust, Zig, or Nim (see the
+interop note below).
 
 **The two assets you build against ship with the package:**
 
 - C header — `@whirlinggizmo/wg-vf/native/wg_vf.h`
-- Nim glue — `@whirlinggizmo/wg-vf/native/vignette.nim`
+- C glue   — `@whirlinggizmo/wg-vf/native/wg_vf.c`
 
-Physically at `node_modules/@whirlinggizmo/wg-vf/dist/native/`. For C/Rust/Zig,
-add that directory to your include path and `#include <wg_vf.h>`. For Nim, add it
-to `--path` and `import vignette`.
+Physically at `node_modules/@whirlinggizmo/wg-vf/dist/native/`. Add that directory
+to your include path, `#include <wg_vf.h>`, and compile/link `wg_vf.c` alongside
+your vignette.
 
-Nim example:
+```c
+#include <wg_vf.h>
 
-```nim
-# nim c --path:node_modules/@whirlinggizmo/wg-vf/dist/native ...
-import vignette
+static uint32_t g_counter = 0, g_seq = 0;
 
-var counter: uint32 = 0
-var seqNo: uint32 = 0
+static void on_fixed_tick(uint32_t step_us, uint32_t step_index) {
+  (void)step_us; (void)step_index;
+  uint8_t body[4];
+  g_counter += 1u; g_seq += 1u;
+  body[0] = (uint8_t)(g_counter & 0xFF);
+  wg_vf_publish_frame(g_seq, body, sizeof body);   // Frame channel
+}
 
-proc onInit(data: openArray[Byte]) =
-  discard data
+static uint32_t on_message(uint32_t sender_id, uint8_t *data, uint32_t len) {
+  wg_vf_emit((uint16_t)sender_id, data, len);       // unicast App reply
+  wg_vf_broadcast(data, len);                       // App broadcast
+  return 0;                                          // 0 = ok; nonzero = sim-fatal
+}
 
-proc onFixedTick(stepUs, stepIndex: uint32) =
-  counter = counter + 1'u32
-  seqNo = seqNo + 1'u32
-  var body: array[4, Byte]
-  body[0] = Byte(counter and 0xFF)
-  publishFrame(seqNo, body)          # Frame channel
-
-proc onMessage(senderId: uint32, data: openArray[Byte]): uint32 =
-  emit(uint16(senderId), data)       # unicast App reply to sender
-  broadcast(data)                    # App broadcast
-  0'u32                              # return 0 = ok; nonzero = sim-fatal
-
-registerVignetteHandlers(onInit, onMessage, onFixedTick = onFixedTick)
+// Register on module load (works for the wasm module and the native .so).
+__attribute__((constructor)) static void reg(void) {
+  wg_vf_handlers h = {0};
+  h.on_fixed_tick = on_fixed_tick;
+  h.on_message = on_message;
+  wg_vf_register(&h);
+}
 ```
 
 Key ABI facts (see `wg_vf.h`):
@@ -203,17 +205,22 @@ Key ABI facts (see `wg_vf.h`):
   a trap, is **sim-fatal** — a trapped instance's memory is untrustworthy.
 - **Outbox ring buffer** at `vf_outbox_offset()`: header `[head u32][tail u32]
   [cap u32]`, then entries `[payload_len u32][target_id u16][payload]`. The glue
-  writes it; you call `emit`/`broadcast`.
-- **Frame buffer:** `publishFrame(seq, body)` sets it; the host reads
+  writes it; you call `wg_vf_emit`/`wg_vf_broadcast`.
+- **Frame buffer:** `wg_vf_publish_frame(seq, body, len)` sets it; the host reads
   `vf_frame_offset()/len()/seq()`.
 - **Input staging:** the host writes inbound payloads via `vf_mem_alloc`/`free`
   and passes `(ptr, len)`. Pointers/offsets are `uintptr_t` — 32-bit on wasm32,
   64-bit native — so the same code is correct on both.
 
-Build (reference `config.nims` under `test/wasm/`): emscripten for wasm, `--app:lib`
-for a native `.so`. Both must export the full `vf_*` set (including
-`vf_peer_joined/left` and `vf_frame_*`), and the emscripten build must expose
-`HEAPU8` in `EXPORTED_RUNTIME_METHODS`.
+**Build** (see `scripts/build-reference-vignettes.mjs`): `emcc your.c wg_vf.c
+-sMODULARIZE -sEXPORT_ES6 -sEXPORTED_RUNTIME_METHODS=HEAPU8 -sEXPORTED_FUNCTIONS=…
+--no-entry` for wasm; `clang -shared -fPIC your.c wg_vf.c -o lib….so` for native.
+Export the full `vf_*` set (including `vf_peer_joined/left` and `vf_frame_*`).
+
+**Nim / other languages:** author in Nim (or Rust/Zig) by interop — declare the
+`wg_vf_*` functions and the `wg_vf_handlers` struct against `wg_vf.h`, compile in
+`wg_vf.c`, and register from module init. See the worked example at
+[`examples/three/vignette/nim`](../examples/three/vignette/nim).
 
 ---
 

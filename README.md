@@ -57,13 +57,15 @@ The same host core runs behind a WebSocket for remote/multiplayer (see
 ## Non-JS vignettes (WASM / native)
 
 One source compiles to a worker `.wasm` and a server `.so`, both against the
-shipped C ABI:
+shipped C glue — any C-ABI language (C, Rust, Zig, or Nim via interop):
 
 - **C header:** `@whirlinggizmo/wg-vf/native/wg_vf.h`
-- **Nim glue:** `@whirlinggizmo/wg-vf/native/vignette.nim`
+- **C glue:** `@whirlinggizmo/wg-vf/native/wg_vf.c`
 
-(Physically under `node_modules/@whirlinggizmo/wg-vf/dist/native/`.) See the
-author guide's native section.
+(Physically under `node_modules/@whirlinggizmo/wg-vf/dist/native/`.) You
+`#include <wg_vf.h>`, implement handler callbacks, and compile `wg_vf.c`
+alongside. See the author guide's native section, and `examples/three` for a Nim
+interop example.
 
 ## Package entry points
 
@@ -71,7 +73,7 @@ author guide's native section.
 |---|---|
 | `@whirlinggizmo/wg-vf` | vignettes, hosts, envelope, transports, manifest |
 | `@whirlinggizmo/wg-vf/testing` | `VirtualClock`, `HostPeer`, loopback/lossy pipes, reference vignettes, `runHostConformance` |
-| `@whirlinggizmo/wg-vf/native/*` | `wg_vf.h`, `vignette.nim` for WASM/native authoring |
+| `@whirlinggizmo/wg-vf/native/*` | `wg_vf.h`, `wg_vf.c` for WASM/native authoring |
 
 ## Docs
 

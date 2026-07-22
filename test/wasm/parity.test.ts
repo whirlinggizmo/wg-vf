@@ -1,5 +1,5 @@
 // PAR + ABI-18 (test plan §5, §2.3): the reference vignettes implemented twice
-// — TS and Nim-compiled-to-WASM via wg_vf.h — must be observably identical, and
+// — TS and C-compiled-to-WASM via wg_vf.h — must be observably identical, and
 // a WASM failure must be sim-fatal (unlike a JS peer-fault). Requires the WASM
 // build (npm run test:wasm:build); absent artifacts skip rather than fail.
 

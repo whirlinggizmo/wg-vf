@@ -80,8 +80,8 @@ Landed in `src/hosts/FixedStepEngine.ts` + `src/hosts/Clock.ts`. Tests: `test/un
 TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes: `src/testing/vignettes.ts` (echo/counter/chaos, T-VIG-*).
 
 - [x] `Vignette`: `handleMessage(senderId, payload)`, `peerJoined(id)`, `peerLeft(id, reason)`, `outboxPop(): { targetId, payload }`, `currentFrame()` accessor, `PeerLeftReason`.
-- [x] WASM `vf_*`: `vf_handle_message(sender,ptr,len)`, `vf_peer_joined`, `vf_peer_left`, u16 target-prefixed outbox, `vf_frame_offset/len/seq`. Nim glue in `src/vignettes/wasm/vignette.nim`; host loader `src/vignettes/WasmVignette.ts`.
-- [x] `wg_vf.h`: canonical C API (`src/vignettes/wasm/`) — one Nim source → wasm32 (emscripten). Reference `counter` builds via `npm run test:wasm:build`.
+- [x] WASM `vf_*`: `vf_handle_message(sender,ptr,len)`, `vf_peer_joined`, `vf_peer_left`, u16 target-prefixed outbox, `vf_frame_offset/len/seq`. C glue in `src/vignettes/wasm/wg_vf.{h,c}`; host loader `src/vignettes/WasmVignette.ts`.
+- [x] `wg_vf.h`: canonical C API (`src/vignettes/wasm/`) — one C source → wasm32 (emscripten) + native (.so). Reference `counter` builds via `npm run test:wasm:build`.
 - [x] **(gate)** PAR-01 (echo), PAR-02 (counter): Nim→WASM byte-matches TS; peer callbacks/handleMessage trap-free; WASM vignette runs through `VignetteHost` end-to-end.
 - [x] **ABI-18**: `SimFatalError` marker on the ABI; a WASM failure (nonzero return / trap) in `handleMessage` is sim-fatal, not peer-fault. Verified TS (conformance) + WASM (`faulty.nim`).
 - [x] **PAR-05**: `wg_vf.h` uses `uintptr_t` for offsets (32-bit wasm / 64-bit native); compiles clean −Wall −Wextra −std=c11; the same `counter.nim` built native `.so` byte-matches TS via a `bun:ffi` harness. `npm run test:native:build`.

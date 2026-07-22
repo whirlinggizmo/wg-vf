@@ -1,7 +1,7 @@
 // DET-03 / DET-05 (test plan §4): cross-binding determinism under a scripted
 // scenario, including an overload segment. The same vignette (counter) and the
 // same T-SCRIPT must yield byte-identical observable traces whether the sim is
-// TS or Nim-compiled-to-WASM. Skips if the WASM isn't built.
+// TS or C-compiled-to-WASM. Skips if the WASM isn't built.
 
 import { describe, expect, test } from 'bun:test';
 

@@ -1,163 +1,126 @@
+## Three.js demo vignette authored in Nim via C interop with wg_vf.h / wg_vf.c.
+## The framework glue (outbox ring, frame buffer, vf_* exports) is the shipped C
+## implementation; this file provides handler callbacks and registers them —
+## demonstrating that any C-ABI language can author a vignette.
+
 import std/json
 import std/random
 import std/math
-import vignettes/wasm/vignette
 
+type Byte = uint8
 
-# Initialize random seed
-randomize()
+# --- C interop with the wg-vf glue (wg_vf.h) -------------------------------
 
-# Game state
-type
-  Entity = object
-    id: uint32
-    x, y, z: float32
-    entityType: string  # "cube" or "sphere"
-    color: uint32
+type WgVfHandlers {.importc: "wg_vf_handlers", header: "wg_vf.h", bycopy.} = object
+  on_init: proc(data: ptr Byte, len: uint32) {.cdecl.}
+  on_tick: proc(dtUs, frameId: uint32) {.cdecl.}
+  on_fixed_tick: proc(stepUs, stepIndex: uint32) {.cdecl.}
+  on_message: proc(senderId: uint32, data: ptr Byte, len: uint32): uint32 {.cdecl.}
+  on_peer_joined: proc(clientId: uint32) {.cdecl.}
+  on_peer_left: proc(clientId, reason: uint32) {.cdecl.}
+  on_shutdown: proc() {.cdecl.}
+
+proc wg_vf_register(h: ptr WgVfHandlers) {.importc, cdecl, header: "wg_vf.h".}
+proc wg_vf_broadcast(data: ptr Byte, len: uint32) {.importc, cdecl, header: "wg_vf.h".}
+
+# --- game state ------------------------------------------------------------
+
+type Entity = object
+  id: uint32
+  x, y, z: float32
+  entityType: string
+  color: uint32
 
 var entities: seq[Entity] = @[]
 var playerId: uint32 = 0
 var nextEntityId: uint32 = 0
 var elapsedUs: float64 = 0.0
 
-proc log(message: string) =
-  when defined(js):
-    echo "[three-vignette (nim:js)] ", message
+randomize()
+
+proc broadcastJson(msg: JsonNode) =
+  let s = $msg
+  var bytes = newSeq[Byte](s.len)
+  for i in 0 ..< s.len:
+    bytes[i] = Byte(s[i])
+  if bytes.len > 0:
+    wg_vf_broadcast(addr bytes[0], uint32(bytes.len))
   else:
-    echo "[three-vignette (nim:wasm)] ", message
+    wg_vf_broadcast(nil, 0)
 
-proc sendMessage(msg: JsonNode) =
-  let jsonStr = $msg
-  var bytes = newSeq[Byte](jsonStr.len)
-  for i in 0 ..< jsonStr.len:
-    bytes[i] = Byte(jsonStr[i])
-  broadcast(bytes)
+proc bytesToString(data: ptr Byte, len: uint32): string =
+  result = newString(int(len))
+  if len == 0'u32:
+    return
+  let arr = cast[ptr UncheckedArray[Byte]](data)
+  for i in 0 ..< int(len):
+    result[i] = char(arr[i])
 
-proc bytesToString(data: openArray[Byte]): string =
-  result = newString(data.len)
-  for i in 0 ..< data.len:
-    result[i] = char(data[i])
+proc entityJson(e: Entity): JsonNode =
+  %*{"id": e.id, "x": e.x, "y": e.y, "z": e.z, "type": e.entityType, "color": e.color}
 
-proc allocateEntityId(): uint32 =
+proc allocId(): uint32 =
   nextEntityId += 1
   nextEntityId
 
-proc emitEntitySpawned(entity: Entity) =
-  sendMessage(%*{
-    "type": "EntitySpawned",
-    "entity": {
-      "id": entity.id,
-      "x": entity.x,
-      "y": entity.y,
-      "z": entity.z,
-      "type": entity.entityType,
-      "color": entity.color
-    }
-  })
-
-proc spawnRandomEntity(): Entity =
+proc spawnRandom(): Entity =
   result = Entity(
-    id: allocateEntityId(),
+    id: allocId(),
     x: (rand(1.0) - 0.5) * 10,
     y: (rand(1.0) - 0.5) * 10,
     z: (rand(1.0) - 0.5) * 10,
-    entityType: if rand(1.0) > 0.5: "cube" else: "sphere",
-    color: uint32(rand(0xFFFFFF))
+    entityType: (if rand(1.0) > 0.5: "cube" else: "sphere"),
+    color: uint32(rand(0xFFFFFF)),
   )
   entities.add(result)
-  emitEntitySpawned(result)
+  broadcastJson(%*{"type": "EntitySpawned", "entity": entityJson(result)})
 
-proc onInit(data: openArray[Byte]) =
-  let text = bytesToString(data)
-  log("init: " & text)
+proc stateUpdate() =
+  var arr: seq[JsonNode] = @[]
+  for e in entities:
+    arr.add(entityJson(e))
+  broadcastJson(%*{"type": "StateUpdate", "entities": arr})
+
+# --- handlers --------------------------------------------------------------
+
+proc onInit(data: ptr Byte, len: uint32) {.cdecl.} =
+  discard bytesToString(data, len)
   for i in 0 ..< 5:
-    discard spawnRandomEntity()
+    discard spawnRandom()
 
-proc onHandleMessage(senderId: uint32, data: openArray[Byte]): uint32 =
-  discard senderId
-  let text = bytesToString(data)
-  let msg = parseJson(text)
-  
-  let msgType = msg["type"].getStr()
-  
-  case msgType:
-    of "SpawnPlayer":
-      playerId = allocateEntityId()
-      let player = Entity(
-        id: playerId,
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-        entityType: "cube",
-        color: 0x00ff00'u32
-      )
-      entities.add(player)
-      emitEntitySpawned(player)
-      
-    of "MoveEntity":
-      let id = uint32(msg["id"].getInt())
-      for entity in entities.mitems:
-        if entity.id == id:
-          entity.x = msg["x"].getFloat().float32
-          entity.y = msg["y"].getFloat().float32
-          entity.z = msg["z"].getFloat().float32
-          
-          sendMessage(%*{
-            "type": "EntityMoved",
-            "entity": {
-              "id": entity.id,
-              "x": entity.x,
-              "y": entity.y,
-              "z": entity.z,
-              "type": entity.entityType,
-              "color": entity.color
-            }
-          })
-          break
-          
-    of "SpawnRandomEntity":
-      discard spawnRandomEntity()
-      
-  return 0
-
-proc onTick(dtUs: uint32, frameId: uint32) =
+proc onTick(dtUs, frameId: uint32) {.cdecl.} =
   elapsedUs += float64(dtUs)
-  let elapsedSeconds = elapsedUs / 1_000_000.0
-
-  # sin() outputs -1..+1, so y moves from (-1 * yAmplitude) to (+1 * yAmplitude)
-  let yAmplitude = 5.0 # -5 to +5
-  for i, entity in entities.mpairs:
-    if entity.id != playerId:
-      entity.y = sin(elapsedSeconds / 2.0 + float64(entity.x) * 0.5) * yAmplitude
-  
-  # Send state update at 30fps (every 2 frames at 60fps)
+  let seconds = elapsedUs / 1_000_000.0
+  for e in entities.mitems:
+    if e.id != playerId:
+      e.y = float32(sin(seconds / 2.0 + float64(e.x) * 0.5) * 5.0)
   if frameId mod 2 == 0:
-    var entityArray: seq[JsonNode] = @[]
-    for entity in entities:
-      entityArray.add(%*{
-        "id": entity.id,
-        "x": entity.x,
-        "y": entity.y,
-        "z": entity.z,
-        "type": entity.entityType,
-        "color": entity.color
-      })
-    
-    sendMessage(%*{
-      "type": "StateUpdate",
-      "entities": entityArray
-    })
+    stateUpdate()
 
-proc onFixedTick(stepUs: uint32, stepIndex: uint32) =
-  discard
+proc onMessage(senderId: uint32, data: ptr Byte, len: uint32): uint32 {.cdecl.} =
+  discard senderId
+  let msg = parseJson(bytesToString(data, len))
+  case msg["type"].getStr()
+  of "SpawnPlayer":
+    playerId = allocId()
+    let player = Entity(id: playerId, x: 0, y: 0, z: 0, entityType: "cube", color: 0x00ff00'u32)
+    entities.add(player)
+    broadcastJson(%*{"type": "EntitySpawned", "entity": entityJson(player)})
+  of "SpawnRandomEntity":
+    discard spawnRandom()
+  else:
+    discard
+  0'u32
 
-proc onShutdown() =
-  log("shutdown")
+proc onPeerJoined(clientId: uint32) {.cdecl.} =
+  discard clientId
+  stateUpdate()
 
-registerVignetteHandlers(
-  onInit = onInit,
-  onMessage = onHandleMessage,
-  onTick = onTick,
-  onFixedTick = onFixedTick,
-  onShutdown = onShutdown,
-)
+# --- register (runs at module init) ---------------------------------------
+
+var handlers: WgVfHandlers
+handlers.on_init = onInit
+handlers.on_tick = onTick
+handlers.on_message = onMessage
+handlers.on_peer_joined = onPeerJoined
+wg_vf_register(addr handlers)

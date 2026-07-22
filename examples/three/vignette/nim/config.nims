@@ -16,7 +16,12 @@ when declared(switch):
 
 
   switch("path", thisDir()) # for shared and lib
-  switch("path", thisDir() & "/../../../../src") # for framework vignette module
+
+  # The framework glue is C now; compile wg_vf.c in and expose its header. This
+  # example demonstrates authoring a vignette in Nim via C interop.
+  const wgVfDir = thisDir() & "/../../../../src/vignettes/wasm"
+  switch("passC", "-I" & wgVfDir)
+  switch("compile", wgVfDir & "/wg_vf.c")
 
 
   proc ensureDirExists*(dir: string) =
