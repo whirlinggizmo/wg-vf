@@ -12,9 +12,46 @@ import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
 import { lossyPipe } from '../../src/testing/LossyPipe.js';
 import { HostPeer } from '../../src/testing/HostPeer.js';
 import { CounterVignette } from '../../src/testing/vignettes.js';
+import { runScript, type ScriptAction } from '../../src/testing/script.js';
+import type { BytePeer } from '../../src/transports/BytePeer.js';
 import { readFrameHeader } from '../../src/envelope/index.js';
 
 const STEP = 16_666;
+
+// S1: multi-peer join/leave churn + an overload pump (6 steps, maxSubsteps 4).
+function s1(): ScriptAction[] {
+  return [
+    { op: 'connect', peer: 'P1' },
+    { op: 'init', peer: 'P1' },
+    { op: 'connect', peer: 'P2' },
+    { op: 'join', peer: 'P2' },
+    { op: 'advance', us: STEP * 3 },
+    { op: 'pump' },
+    { op: 'advance', us: STEP * 6 }, // overload → drop-time clamp
+    { op: 'pump' },
+    { op: 'leave', peer: 'P2' },
+    { op: 'advance', us: STEP * 2 },
+    { op: 'pump' },
+  ];
+}
+
+describe('DET-01/02 transport invariance', () => {
+  test('same script + vignette yields identical traces over loopback and a byte-copy transport', async () => {
+    // A transport that serializes (copies) every byte on the way to the host —
+    // models a "remote" pipe that re-materializes envelopes.
+    const byteCopy = (end: BytePeer): BytePeer => ({
+      send: (b) => end.send(b.slice()),
+      onBytes: (cb) => end.onBytes((b) => cb(b.slice())),
+    });
+
+    const plain = await runScript(() => new CounterVignette(), s1());
+    const wrapped = await runScript(() => new CounterVignette(), s1(), { wrapPipe: byteCopy });
+
+    expect(wrapped.traces).toEqual(plain.traces);
+    expect(wrapped.finalState).toBe(plain.finalState);
+    expect(plain.traces.P1.length).toBeGreaterThan(0);
+  });
+});
 
 function entry(create: () => Vignette): HostVignetteEntry {
   return { vignetteId: 'sim', version: '1.0.0', fixedStepUs: STEP, maxSubsteps: 4, maxPeers: 8, create };

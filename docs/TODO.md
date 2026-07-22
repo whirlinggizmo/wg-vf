@@ -11,7 +11,9 @@ No backwards compatibility: v1 is deleted outright, v2 promoted to canonical nam
 - [x] Deleted v1 source: old `envelope/`, `Vignette`/`BaseVignette`, `BaseVignetteHost`/`Local`/`Remote`VignetteHost, `bridge/` (VignetteBridge + worker), `WasmVignette` + `vignette.h`/`.nim`.
 - [x] Deleted v1 tests (helpers, codec, fixtures, integration, old unit host/transport tests) and obsolete v1 docs (framework spec, runtime ABI, symmetry/accuracy analyses).
 - [x] Kept `transports/` (byte pipes) — valid for v2; add a `BytePeer` adapter for the WS transport in Phase 7.
-- [ ] **`examples/` are stale** (consumed the deleted bridge/host API). Not in build/test gates. Rewrite against the v2 host in Phase 7/8 or delete.
+- [x] `examples/simple` rewritten to v2 (remote-app, local-app, local-worker, js vignette) + `examples/remote-server.ts`; orphaned v1 files removed (app-base, config, simple/vignette/wasm). Scripts: `example:server` / `example:remote` / `example:local`.
+- [ ] `examples/three` + `examples/codecs` remain v1 (a separate three.js subproject, broken against v2). Rewrite or remove.
+- [ ] PAR-04 (WASM staging cap) and T-GOLD (promote inline golden bytes to files) — minor.
 - [x] Fold the three open decisions into Part I (reconnect-gap drop, frame silence, 1 MiB payload cap).
 - [x] Draft Part II (shared host scaffolding).
 
@@ -68,7 +70,9 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 - [x] **T-LOSSY** (`lossyPipe`): drops Frame envelopes at a seeded rate, System/App untouched.
 - [x] **DET-03**: `counter` TS and WASM produce byte-identical frame+App traces through the host over a scripted pump sequence — cross-binding determinism.
 - [x] **DET-04**: frame loss changes only the lossy peer's received frames; the reliable App/event stream is identical and the sim is unaffected.
-- [ ] DET-01/02/05: full T-SCRIPT (join/leave churn, message bursts) + overload (drop-time) trace equality across Local vs Remote transports.
+- [x] **T-SCRIPT** (`runScript`): ordered action script (connect/init/join/app/leave/drop/advance/pump/poll) + deterministic trace capture (App+Frame per peer; Ready/token excluded).
+- [x] **DET-01/02**: same script + vignette yields identical traces over loopback and a byte-copy transport (transport invariance).
+- [x] **DET-05**: overload segment (6 steps, maxSubsteps 4 → drop-time clamp) inside S1; TS and WASM traces byte-identical.
 
 ## Phase 4 — Peer registry & session (Appendix A #3/#5) — CORE DONE
 
@@ -81,7 +85,7 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 - [x] **Reconnect**: `resumeToken` in `Ready` (envelope + Part I §1.5); grace re-bind without `peerLeft`/`peerJoined`; gap traffic dropped; stale/forged token → ordinary Join; `TimedOut` at expiry (Part I §3.3).
 - [x] **Lifetime**: clock-driven timers evaluated on `pump()`/`poll()` (wrap-safe modular elapsed); `reconnectGraceMs` + `emptyGraceMs`; pending reconnect suppresses empty; host-initiated `Shutdown` broadcast + vignette shutdown (Part I §3.5).
 - [x] **(gate)** ENV-10/11/12/13/15/16/21/22/23/24, SES-01/02/07/08/09/10/11/12/13/14/15/16/17/18/19/20/21, ABI-15/16/17/20/22 green.
-- [ ] Remaining SES/ENV: SES-22 (end-to-end impersonation — ENV-10 covers the mechanism), ENV-19/20 (frame coalescing — transport-side, Phase 7).
+- [x] Remaining SES/ENV: SES-22 is the ENV-10/22 impersonation case; ENV-13/16/25 host cases; ENV-19/20 frame coalescing (`coalescingPipe` — a stalled reliable stream keeps only the latest frame, App/System never dropped).
 - [x] Packaged `runHostConformance`: `hostConformanceCases(makeHost)` + `HostPeer` in `src/testing/`, exported from `@whirlinggizmo/wg-vf/testing`. `VignetteHost.test.ts` is now a thin driver; any new host gets the 26-case battery from one factory.
 
 ## Phase 5 — Manifest resolution (Appendix A #4)

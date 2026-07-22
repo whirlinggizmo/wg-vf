@@ -247,6 +247,19 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     jsonEq(p.apps().filter((e) => e.clientId === 0).map((e) => e.payload[2]), [1, 2, 3, 4, 5], 'broadcast order');
   });
 
+  add('ENV-25', 'oversized inbound App is rejected before the vignette; sim untouched', async () => {
+    const { host, connect } = scenario(makeHost, () => new EchoVignette(), { maxPayloadBytes: 64 });
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    // A 128-byte App payload exceeds the 64-byte cap → rejected at decode.
+    p.app(new Uint8Array(128));
+    await host.whenIdle();
+    eq(p.apps().length, 0, 'not delivered to the vignette (no echo)');
+    assert(p.errors().length > 0, 'host emits an Error');
+    eq(host.getState(), 'READY', 'sim survives');
+  });
+
   add('ENV-13', 'unicast to an unattached id is silently dropped; sim unaffected', async () => {
     const { host, connect } = scenario(makeHost, () => new ChaosVignette());
     const p = connect();

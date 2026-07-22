@@ -1,18 +1,13 @@
-// DET-03 (test plan §4): cross-binding determinism. The same vignette (counter)
-// and the same input script must yield byte-identical observable behavior
-// whether the vignette is TS or Nim-compiled-to-WASM. Only the binding differs;
-// the host, envelope, and transport are identical, so matching traces prove the
-// WASM binding is deterministically faithful. Skips if the WASM isn't built.
+// DET-03 / DET-05 (test plan §4): cross-binding determinism under a scripted
+// scenario, including an overload segment. The same vignette (counter) and the
+// same T-SCRIPT must yield byte-identical observable traces whether the sim is
+// TS or Nim-compiled-to-WASM. Skips if the WASM isn't built.
 
 import { describe, expect, test } from 'bun:test';
 
 import { createWasmInstance } from '../../src/vignettes/WasmVignette.js';
 import { CounterVignette } from '../../src/testing/vignettes.js';
-import { VignetteHost, type HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
-import type { Vignette } from '../../src/vignettes/Vignette.js';
-import { VirtualClock } from '../../src/testing/VirtualClock.js';
-import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
-import { HostPeer } from '../../src/testing/HostPeer.js';
+import { runScript, type ScriptAction } from '../../src/testing/script.js';
 
 type Factory = () => Promise<unknown>;
 let counterF: Factory | null = null;
@@ -24,49 +19,50 @@ try {
 
 const STEP = 16_666;
 
-function entry(create: () => Vignette | Promise<Vignette>): HostVignetteEntry {
-  return { vignetteId: 'sim', version: '1.0.0', fixedStepUs: STEP, maxSubsteps: 4, maxPeers: 8, create };
+// S1: multi-peer join/leave churn, a message burst, and an overload pump
+// (advance 6 steps with maxSubsteps 4 → drop-time clamp to 4).
+function s1(): ScriptAction[] {
+  return [
+    { op: 'connect', peer: 'P1' },
+    { op: 'init', peer: 'P1' },
+    { op: 'connect', peer: 'P2' },
+    { op: 'join', peer: 'P2' },
+    { op: 'advance', us: STEP * 3 },
+    { op: 'pump' },
+    { op: 'app', peer: 'P1', bytes: new Uint8Array([1]) },
+    { op: 'advance', us: STEP },
+    { op: 'pump' },
+    { op: 'connect', peer: 'P3' },
+    { op: 'join', peer: 'P3' },
+    { op: 'advance', us: STEP * 6 }, // overload
+    { op: 'pump' },
+    { op: 'leave', peer: 'P2' },
+    { op: 'advance', us: STEP * 2 },
+    { op: 'pump' },
+    { op: 'drop', peer: 'P3' },
+    { op: 'advance', us: STEP },
+    { op: 'pump' },
+  ];
 }
 
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
+describe('DET-03/05 cross-binding determinism', () => {
+  test.skipIf(!counterF)('counter TS and WASM produce byte-identical traces under S1 (incl. overload)', async () => {
+    const tsResult = await runScript(() => new CounterVignette(), s1());
+    const wasmResult = await runScript(
+      async () => createWasmInstance((await counterF!()) as never),
+      s1(),
+    );
 
-// Run a fixed script and return the full observable trace (frame + App stream)
-// as comparable strings.
-async function trace(create: () => Vignette | Promise<Vignette>): Promise<string[]> {
-  const clock = new VirtualClock(0);
-  const host = new VignetteHost(entry(create), clock);
-  const { a, b } = createLoopbackPipe();
-  host.connect(a);
-  const peer = new HostPeer(b);
-
-  peer.init('sim');
-  await host.whenIdle();
-
-  // 30 pumps with jittery dt → variable substeps and a growing sumDtUs, all
-  // driven by the injected clock so both bindings see the identical sequence.
-  for (let i = 0; i < 30; i++) {
-    clock.advance(15_000 + (i % 7) * 400);
-    await host.pump();
-  }
-
-  const frames = peer.frames().map((e) => `F:${hex(e.payload)}`);
-  const apps = peer.apps().map((e) => `A:${e.clientId}:${hex(e.payload)}`);
-  return [...frames, ...apps];
-}
-
-describe('DET-03 cross-binding determinism', () => {
-  test.skipIf(!counterF)('counter TS and WASM produce byte-identical traces', async () => {
-    const tsTrace = await trace(() => new CounterVignette());
-    const wasmTrace = await trace(async () => createWasmInstance((await counterF!()) as never));
-
-    expect(wasmTrace.length).toBeGreaterThan(0);
-    expect(wasmTrace).toEqual(tsTrace);
+    expect(Object.keys(wasmResult.traces).sort()).toEqual(['P1', 'P2', 'P3']);
+    // Every peer's App+Frame stream is byte-identical across the two bindings.
+    expect(wasmResult.traces).toEqual(tsResult.traces);
+    expect(wasmResult.finalState).toBe(tsResult.finalState);
+    // The founding peer saw real frames (non-empty trace) — the scenario ran.
+    expect(tsResult.traces.P1.length).toBeGreaterThan(0);
   });
 
   if (!counterF) {
-    test('WASM artifact not built — DET-03 skipped', () => {
+    test('WASM artifact not built — DET-03/05 skipped', () => {
       expect(true).toBe(true);
     });
   }

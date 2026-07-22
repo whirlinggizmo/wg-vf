@@ -15,6 +15,13 @@ export {
   type LoopbackOptions,
 } from './LoopbackBytePipe.js';
 export { lossyPipe, type LossyOptions } from './LossyPipe.js';
+export { coalescingPipe, type CoalescingPipe } from './CoalescingPipe.js';
+export {
+  runScript,
+  type ScriptAction,
+  type ScriptResult,
+  type RunScriptOptions,
+} from './script.js';
 export {
   EchoVignette,
   CounterVignette,

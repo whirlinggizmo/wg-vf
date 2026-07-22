@@ -31,7 +31,7 @@ export class HostPeer {
     end.onBytes((bytes) => this.received.push(decodeEnvelope(bytes)));
   }
 
-  init(vignetteId: string, initPayload = new Uint8Array()): void {
+  init(vignetteId: string, initPayload: Uint8Array = new Uint8Array()): void {
     this.end.send(encodeSystemEnvelope(SystemType.Init, encodeInitPayload({ vignetteId, initPayload })));
   }
 
