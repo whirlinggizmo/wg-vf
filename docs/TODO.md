@@ -4,6 +4,29 @@ Tracks the work implied by [Architecture Part I (Contracts)](./architecture-part
 
 Legend: `[ ]` todo · `[~]` in progress · `[x]` done · **(gate)** = conformance milestone.
 
+## Status (accurate summary)
+
+Phases 1–7 are **done and verified**: envelope v2, fixed-step engine, ABI (TS +
+WASM + native), host core (provision/join/leave, reconnect, lifetime), manifest
+resolution (Phase 5), conformance battery (`runHostConformance`), determinism
+suite (DET-01..05), and live examples (simple worker/remote, three.js) on TS,
+WASM, native, WebSocket, and Worker. 76 tests green; both projects typecheck.
+**No known correctness gaps.**
+
+Per-phase checkboxes below may lag the summary lines; trust this block and the
+"Remaining" list. Genuinely remaining, none blocking:
+
+- [ ] **Dev mode** (`allowClientModuleUrls`, Part I §3.7) — optional; module-form
+  loading already covers real loading. This is the *client-supplied* URL escape
+  hatch (dev convenience + security hole). Likely never wanted in prod.
+- [ ] **ABI-13/14 tests** — explicit assertions for loop ordering (tick then
+  fixedTick burst) and message-delivered-between-pumps. Mechanism already holds.
+- [ ] **T-GOLD** — promote inline golden envelope bytes to versioned fixture files.
+- [ ] **WS conformance driving** — run the deterministic battery through a real
+  socket adapter (needs a pump/clock control channel). Low value; live smoke covers it.
+- [ ] **Perf pass** — reduce ingress/egress payload copies; reusable staging.
+- [ ] **Phase 8 dogfood** — Rest Easy as conformance consumer #4 (downstream).
+
 ## Clean-slate replacement
 
 No backwards compatibility: v1 is deleted outright, v2 promoted to canonical names (no `V2` suffixes, no `/v2/` dirs, no shims/aliases). Assume no existing consumers.
