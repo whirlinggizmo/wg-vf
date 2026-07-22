@@ -1,0 +1,312 @@
+# Writing a Vignette — Author Guide
+
+**Audience:** anyone (human or agent) writing a **vignette** — the self-contained
+simulation module that runs behind a wg-vf host. **You write logic and choose
+your own payload bytes; the host owns everything else** — transport, identity,
+lifetime, timing, and the wire protocol.
+
+This guide is self-contained. For the normative contract see
+[Architecture Part I](./architecture-part1.md); this is the practical view.
+
+---
+
+## 1. The mental model
+
+```
+your app  ─envelopes─▶  a stock wg-vf HOST  ─ABI calls─▶  YOUR VIGNETTE
+                          (worker or server)               (this guide)
+```
+
+- You implement a small **operation set** (init, tick, fixedTick, handleMessage,
+  peerJoined, peerLeft, shutdown) plus an **outbox** and an optional **frame**.
+- You **never** write host, transport, worker, or socket code. A host loads your
+  module from a **manifest** (it maps a vignette id → your module) and drives it.
+- The same vignette source runs **unchanged** in a browser worker, a server
+  process, as WASM, or as a native library. Don't assume where you run.
+
+### What you own vs. what the host owns
+
+| You own | The host owns |
+|---|---|
+| Sim state & logic | When ops are called, and in what order |
+| The **bytes** of App and Frame payloads (any codec) | Identity (`clientId`), the wire envelope, System messages |
+| Your outbox entries (target + bytes) | Routing those entries to peers |
+| Your frame buffer + `frameSeq` | When to snapshot/publish it |
+
+---
+
+## 2. The guarantees you can rely on
+
+Every conforming host promises all of this. Write against it:
+
+1. **Serial, non-reentrant, single-threaded.** Operations are never called
+   concurrently or nested. No locks needed.
+2. **`init` first, `shutdown` last.** Nothing is called before `init` resolves;
+   nothing after `shutdown` begins.
+3. **Outbox drained after every op.** Anything you enqueue during an op is sent
+   before the next op runs.
+4. **`peerJoined(k)` precedes the first `handleMessage(k, …)`**, and you get no
+   `handleMessage(k, …)` after `peerLeft(k, …)`.
+5. **Fixed-step is exact.** `fixedTick` always receives exactly the configured
+   `stepUs`; `stepIndex` increments by exactly 1 per call (mod 2³²), no gaps, no
+   repeats, for the whole lifetime.
+6. **Sender identity is trustworthy.** `senderId` on `handleMessage` is stamped
+   by the host; a peer cannot forge or impersonate it.
+7. **Your App bytes are 100% yours.** The framework never inspects or reorders
+   the *contents* of App/Frame payloads.
+8. **Messages arrive between loop iterations**, never between the fixed-step
+   substeps of one iteration.
+
+---
+
+## 3. The operation set (the ABI)
+
+This table is the whole contract. Every binding (TypeScript, WASM, C) renders it
+identically.
+
+| Operation | When the host calls it |
+|---|---|
+| `init(initPayload)` | Once, before anything else. |
+| `tick(dtUs, frameId)` | Once per host loop iteration (render-rate). |
+| `fixedTick(stepUs, stepIndex)` | 0..N times per iteration — the deterministic sim step. |
+| `handleMessage(senderId, payload)` | Per inbound App message. `senderId` is host-stamped. |
+| `peerJoined(clientId)` | When a peer attaches, before its first message. |
+| `peerLeft(clientId, reason)` | On leave (`0`), fault eviction (`1`), or timeout (`2`). |
+| `shutdown()` | Once, last. |
+| **outbox** | You enqueue `(targetId, bytes)`; the host drains after each op. |
+| **frame** | You expose current frame bytes + `frameSeq`; the host publishes it. |
+
+**Time is microseconds, u32, wrapping.** `dtUs`, `stepUs` are durations;
+`frameId`, `stepIndex`, `frameSeq` wrap at 2³². Never treat them as
+non-wrapping counters.
+
+**`tick` vs `fixedTick`.** `tick` runs once per loop at an unspecified rate — use
+it for rate-independent things (interpolation, telemetry). `fixedTick` is your
+deterministic sim step at a fixed cadence — put game logic here. If you want
+replayable / cross-host-identical behavior, **all state changes go in
+`fixedTick`** and depend only on `stepUs`/`stepIndex`.
+
+---
+
+## 4. Channels: how your bytes reach peers
+
+You emit on two logical channels. You never touch the third (System).
+
+- **App (reliable, ordered):** events and commands. `emit(targetId, bytes)` for a
+  unicast (`targetId` = a peer's `clientId`), or `broadcast(bytes)` for everyone.
+  Delivered reliably and in order per peer. Use any codec (JSON, MessagePack,
+  protobuf, hand-rolled binary) — the framework doesn't care.
+- **Frame (latest-wins, droppable):** your per-tick state snapshot. You keep a
+  frame buffer and a monotonic `frameSeq`; the host snapshots it after the
+  fixedTick burst and may drop/coalesce older frames in transit. **Never put
+  anything you can't afford to lose on the Frame channel** — put it on App.
+
+Rule of thumb: **discrete events → App; continuous state → Frame.**
+
+---
+
+## 5. Writing a vignette in TypeScript
+
+Extend `BaseVignette` (it manages the outbox queue for you) and override what you
+need. Everything is optional except that you handle whatever you care about.
+
+```ts
+import { BaseVignette, PeerLeftReason, type FrameView } from "@whirlinggizmo/wg-vf";
+
+export default class MyVignette extends BaseVignette {
+  private counter = 0;
+  private frameSeq = 0;
+  private readonly frame = new Uint8Array(4);
+
+  override init(initPayload: Uint8Array): void {
+    // parse your init config from initPayload (any codec)
+  }
+
+  override fixedTick(stepUs: number, stepIndex: number): void {
+    this.counter = (this.counter + 1) >>> 0;           // deterministic step
+    new DataView(this.frame.buffer).setUint32(0, this.counter, true);
+    this.frameSeq = (this.frameSeq + 1) >>> 0;
+  }
+
+  override handleMessage(senderId: number, payload: Uint8Array): void {
+    // react to a peer command; reply to just that peer, or broadcast:
+    this.emit(senderId, new TextEncoder().encode("ack"));
+    this.broadcast(new TextEncoder().encode("someone did a thing"));
+  }
+
+  override peerJoined(clientId: number): void {/* optionally sync state to them */}
+  override peerLeft(clientId: number, reason: PeerLeftReason): void {}
+
+  // Return your current frame (or null for "no frame yet"). Snapshot by value.
+  override currentFrame(): FrameView {
+    return { seq: this.frameSeq, body: this.frame.slice() };
+  }
+}
+```
+
+- `emit(targetId, bytes)` / `broadcast(bytes)` are `protected` on `BaseVignette`.
+- A **default export** class (or a `() => Vignette` factory) is what the host's
+  module loader instantiates.
+- You may return a `Promise` from any op; the host awaits it serially.
+
+The host's manifest entry for this module is just:
+`{ type: "js", module: "<url to built module>", version, fixedStepUs, maxSubsteps, maxPeers }`.
+
+---
+
+## 6. Writing a vignette in Nim / C / Rust / Zig → WASM or native
+
+One source compiles to a browser-worker `.wasm` **and** a server `.so` from the
+same code, both exposing the [`wg_vf.h`](../src/vignettes/wasm/wg_vf.h) C ABI. You
+implement handler procs and register them; the framework glue owns the outbox
+ring buffer and the frame buffer.
+
+Nim example (using `src/vignettes/wasm/vignette.nim`):
+
+```nim
+import "path/to/src/vignettes/wasm/vignette"
+
+var counter: uint32 = 0
+var seqNo: uint32 = 0
+
+proc onInit(data: openArray[Byte]) =
+  discard data
+
+proc onFixedTick(stepUs, stepIndex: uint32) =
+  counter = counter + 1'u32
+  seqNo = seqNo + 1'u32
+  var body: array[4, Byte]
+  body[0] = Byte(counter and 0xFF)
+  publishFrame(seqNo, body)          # Frame channel
+
+proc onMessage(senderId: uint32, data: openArray[Byte]): uint32 =
+  emit(uint16(senderId), data)       # unicast App reply to sender
+  broadcast(data)                    # App broadcast
+  0'u32                              # return 0 = ok; nonzero = sim-fatal
+
+registerVignetteHandlers(onInit, onMessage, onFixedTick = onFixedTick)
+```
+
+Key ABI facts (see `wg_vf.h`):
+
+- **Return codes:** lifecycle exports return `0` on success. A nonzero return, or
+  a trap, is **sim-fatal** — a trapped instance's memory is untrustworthy.
+- **Outbox ring buffer** at `vf_outbox_offset()`: header `[head u32][tail u32]
+  [cap u32]`, then entries `[payload_len u32][target_id u16][payload]`. The glue
+  writes it; you call `emit`/`broadcast`.
+- **Frame buffer:** `publishFrame(seq, body)` sets it; the host reads
+  `vf_frame_offset()/len()/seq()`.
+- **Input staging:** the host writes inbound payloads via `vf_mem_alloc`/`free`
+  and passes `(ptr, len)`. Pointers/offsets are `uintptr_t` — 32-bit on wasm32,
+  64-bit native — so the same code is correct on both.
+
+Build (reference `config.nims` under `test/wasm/`): emscripten for wasm, `--app:lib`
+for a native `.so`. Both must export the full `vf_*` set (including
+`vf_peer_joined/left` and `vf_frame_*`), and the emscripten build must expose
+`HEAPU8` in `EXPORTED_RUNTIME_METHODS`.
+
+---
+
+## 7. Determinism (opt in if you want replay / cross-host identity)
+
+The framework can guarantee **byte-identical behavior across hosts, languages,
+and replays** — but only if your vignette is deterministic. To qualify:
+
+- Change state **only** in `fixedTick`, using only `stepUs`/`stepIndex`.
+- Never read wall-clock time, `Math.random`, or ambient entropy. If you need
+  randomness, seed a PRNG from `initPayload` and advance it in `fixedTick`.
+- Treat `stepIndex`/`frameId`/`frameSeq` as **wrapping u32** (modular compare).
+- Use fixed iteration order (ordered maps/arrays, not hash-set iteration).
+- Avoid float nondeterminism if you target multiple languages/CPUs; prefer
+  integer/fixed-point for anything that must match bit-for-bit.
+
+Then the same source, TS or WASM, produces the same outbox and frame streams —
+which the DET suite verifies.
+
+---
+
+## 8. Errors: what happens when you throw
+
+- **Throw in `handleMessage`** → **peer fault** (JS): the host attributes it to
+  the sender, unicasts an `Error`, evicts that peer (`peerLeft(k, Fault)`), and
+  the sim keeps running. A malformed/malicious peer can't take down the session.
+  *(A WASM trap or nonzero return is always **sim-fatal**, not peer-fault — a
+  trapped instance's memory can't be trusted.)*
+- **Throw in any other op** (`init`, `tick`, `fixedTick`, `peerJoined`,
+  `peerLeft`, `shutdown`) → **sim-fatal**: the host broadcasts an `Error` and
+  shuts the session down. So validate untrusted input in `handleMessage`, and
+  keep host-driven ops total.
+- To force sim-fatal deliberately from `handleMessage` (TS), throw
+  `SimFatalError`.
+
+---
+
+## 9. How your vignette gets loaded and run
+
+You don't wire any of this — you just declare it in a **manifest** the host is
+given:
+
+```jsonc
+{ "vignettes": {
+  "my-sim": {
+    "type": "wasm",                 // "js" | "wasm"
+    "module": "./out/my-sim.wasm.js",
+    "version": "1.0.0",
+    "fixedStepUs": 16666,           // your sim cadence
+    "maxSubsteps": 4,               // overload cap (drop-time beyond this)
+    "maxPeers": 8,
+    "reconnectGraceMs": 5000,       // optional
+    "emptyGraceMs": 10000           // optional
+  }
+}}
+```
+
+A peer provisions your sim by **naming** `"my-sim"` (never a URL); the host
+resolves it, loads your module, and drives it. Selecting js vs wasm, local vs
+remote, single- vs multi-player is all host/deployment policy — your vignette is
+identical in every case.
+
+---
+
+## 10. Testing your vignette (no browser/server needed)
+
+Drive it in-process through a real host with the testing tooling:
+
+```ts
+import { VignetteHost } from "@whirlinggizmo/wg-vf";
+import { VirtualClock, createLoopbackPipe, HostPeer } from "@whirlinggizmo/wg-vf/testing";
+import MyVignette from "./my-vignette";
+
+const clock = new VirtualClock(0);
+const host = VignetteHost.single("my-sim",
+  { version: "1.0.0", fixedStepUs: 16666, maxSubsteps: 4, maxPeers: 8,
+    create: () => new MyVignette() }, clock);
+
+const { a, b } = createLoopbackPipe();
+host.connect(a);
+const peer = new HostPeer(b);
+
+peer.init("my-sim");           // provision
+await host.whenIdle();
+peer.app(/* your command bytes */);
+await host.whenIdle();
+clock.advance(16666);          // one fixed step
+await host.pump();
+
+peer.apps();                   // App envelopes your vignette sent
+peer.frames();                 // Frame envelopes (latest-wins)
+```
+
+`VirtualClock` + `pump()` make it fully deterministic — no timers, no sleeps.
+
+---
+
+## Checklist
+
+- [ ] All sim state changes in `fixedTick`, driven by `stepUs`/`stepIndex`.
+- [ ] Discrete events on App (`emit`/`broadcast`); continuous state on Frame.
+- [ ] Validate untrusted input in `handleMessage`; keep other ops total.
+- [ ] Treat `frameId`/`stepIndex`/`frameSeq` as wrapping u32.
+- [ ] No wall-clock, no unseeded randomness (if you want determinism).
+- [ ] `currentFrame()` snapshots by value; `frameSeq` advances only on a step.
+- [ ] Default-export a class/factory (TS) or `registerVignetteHandlers` (native).
