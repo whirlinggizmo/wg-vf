@@ -7,6 +7,10 @@ export * from './envelope/index.js';
 export type { Vignette, OutboxEntry, FrameView } from './vignettes/Vignette.js';
 export { PeerLeftReason } from './vignettes/Vignette.js';
 export { BaseVignette } from './vignettes/BaseVignette.js';
+export {
+  createWasmInstance,
+  type WasmVignetteInstance,
+} from './vignettes/WasmVignette.js';
 
 // Host core (docs/architecture-part1.md §2/§3, Part II).
 export {
