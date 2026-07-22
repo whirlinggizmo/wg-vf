@@ -10,6 +10,11 @@
 #   docker build -t wg-vf-toolchain .
 #   docker run --rm -v "$PWD":/work wg-vf-toolchain bash -lc "npm ci && npm run test:wasm"
 #
+# Or use the accompanying docker-compose.yml, which wraps the mount/workdir:
+#   docker compose run --rm toolchain npm run test:wasm   # build wasm/native + test
+#   docker compose run --rm toolchain bun test            # full suite
+#   docker compose up server                              # live host on ws://localhost:8787
+#
 # (Pure-C native builds need only clang; wasm needs emscripten; the three
 # example's Nim-interop vignette needs nim.)
 
