@@ -72,7 +72,7 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 - [x] **Lifetime**: clock-driven timers evaluated on `pump()`/`poll()` (wrap-safe modular elapsed); `reconnectGraceMs` + `emptyGraceMs`; pending reconnect suppresses empty; host-initiated `Shutdown` broadcast + vignette shutdown (Part I §3.5).
 - [x] **(gate)** ENV-10/11/12/13/15/16/21/22/23/24, SES-01/02/07/08/09/10/11/12/13/14/15/16/17/18/19/20/21, ABI-15/16/17/20/22 green.
 - [ ] Remaining SES/ENV: SES-22 (end-to-end impersonation — ENV-10 covers the mechanism), ENV-19/20 (frame coalescing — transport-side, Phase 7).
-- [ ] Promote the test's inline `makePeer` helper into `runHostConformance` (test plan §6) — the session layer is now complete enough to package.
+- [x] Packaged `runHostConformance`: `hostConformanceCases(makeHost)` + `HostPeer` in `src/testing/`, exported from `@whirlinggizmo/wg-vf/testing`. `VignetteHost.test.ts` is now a thin driver; any new host gets the 26-case battery from one factory.
 
 ## Phase 5 — Manifest resolution (Appendix A #4)
 

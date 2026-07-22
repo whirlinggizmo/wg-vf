@@ -21,5 +21,12 @@ export {
   ChaosOp,
   COUNTER_FRAME_SIZE,
 } from './vignettes.js';
+export { HostPeer } from './HostPeer.js';
+export {
+  hostConformanceCases,
+  type ConformanceHost,
+  type ConformanceCase,
+  type MakeHost,
+} from './conformance.js';
 export type { BytePeer } from '../transports/BytePeer.js';
 export type { Clock } from '../hosts/Clock.js';
