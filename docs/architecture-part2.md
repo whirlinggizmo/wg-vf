@@ -167,7 +167,7 @@ Everything above is written once. The genuinely per-host code is thin and non-ob
 
 - **TS worker host (`LocalVignetteHost` + `VignetteBridgeWorker`):** the worker RPC framing (structured-clone control messages, transferred payload buffers) and the loopback `BytePeer`. The worker/host boundary stays as the TODO notes: worker owns session/RPC, host owns vignette lifecycle.
 - **Bun/Node remote host (`RemoteVignetteHost` + reference server):** WebSocket ⇄ `BytePeer` adapter, the session-keyed host map (host lifetime decoupled from socket lifetime, Part I §3.5 / SES-17), and frame coalescing on the socket.
-- **Native host (future):** the `wg_vf.h`-driven binding and an OS byte pipe. Shares §2–§7 by linking the same core.
+- **Native host (future):** a C host that `dlopen`s a vignette `.so` and speaks the envelope protocol over a socket, reusing the proven ring/frame ABI. Design pinned in [Native Host — Design Note](./native-host-design.md); build when a no-JS-runtime need is concrete.
 
 ---
 

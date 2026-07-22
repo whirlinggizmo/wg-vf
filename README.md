@@ -67,6 +67,15 @@ shipped C glue — any C-ABI language (C, Rust, Zig, or Nim via interop):
 alongside. See the author guide's native section, and `examples/three` for a Nim
 interop example.
 
+**Reproducible builds:** the repo `Dockerfile` provides the full toolchain
+(clang, emscripten, nim, bun) so you can build the wasm/native/interop assets
+without installing anything locally — `docker build -t wg-vf-toolchain .` then
+mount the repo and run `npm run test:wasm`.
+
+**Native host:** a C host (`dlopen` a vignette `.so` + socket transport) is
+designed but not built — see [docs/native-host-design.md](./docs/native-host-design.md).
+Today the host is TypeScript, deployed on Bun for backends.
+
 ## Package entry points
 
 | Import | What |
