@@ -89,7 +89,7 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 
 ## Phase 7 — Reference hosts rewired (Appendix A #5/#6; Part II §8)
 
-- [ ] TS worker host: worker RPC + loopback `BytePeer`; keep worker(session)/host(lifecycle) boundary.
+- [x] **TS worker host**: `messagePortBytePeer` adapts any postMessage port (Worker / `self` / MessageChannel) into a `BytePeer`; `runWorkerHost` runs a `VignetteHost` bound to the port. No bespoke RPC — the envelope is the protocol. Verified over a real Web Worker (`examples/simple/local-{app,worker}.ts`) and a MessageChannel (tests).
 - [x] **Remote path verified live**: `examples/remote-server.ts` bridges each WebSocket to a `BytePeer` on a shared `VignetteHost`, pumped on a `SystemClock`; `examples/simple/remote-app.ts` provisions/joins and streams. Two peers share one sim end-to-end over a real socket; publish-time frame coalescing observed.
 - [ ] Harden the reference server: **session-keyed host map** so a torn-down session frees the port for a fresh Provision (today's single shared host is one-session-for-the-process); re-Provision after CLOSED; multi-room.
 - [ ] WebSocket transport-side frame coalescing (ENV-19/20) + `BytePeer` adapter for `ReconnectingWebSocketTransport`; drive the conformance battery through the WS adapter.
