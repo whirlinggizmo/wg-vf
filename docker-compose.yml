@@ -1,0 +1,35 @@
+# wg-vf — build/dev convenience. The image (see Dockerfile) is the build
+# toolchain: clang, emscripten, nim, bun, node. Services mount the repo; an
+# anonymous node_modules volume keeps the container's install off the host mount
+# (avoids arch mismatch).
+#
+#   docker compose run --rm toolchain npm ci            # install deps in-container
+#   docker compose run --rm toolchain npm run test:wasm # build wasm/native + test
+#   docker compose run --rm toolchain npm test          # the TS/host suite
+#   docker compose up server                            # live host on ws://localhost:8787
+
+services:
+  # Run any build/test command in the full toolchain.
+  toolchain:
+    build: .
+    image: wg-vf-toolchain
+    working_dir: /work
+    volumes:
+      - .:/work
+      - /work/node_modules
+    command: ["bash"]
+
+  # The example remote host (Bun + WebSocket) for the live demo.
+  server:
+    build: .
+    image: wg-vf-toolchain
+    working_dir: /work
+    environment:
+      VF_HOST_PORT: "8787"
+      VF_HOST_HOSTNAME: "0.0.0.0"
+    ports:
+      - "8787:8787"
+    volumes:
+      - .:/work
+      - /work/node_modules
+    command: ["bash", "-lc", "npm install --no-audit --no-fund && bun run examples/remote-server.ts"]
