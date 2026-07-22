@@ -19,7 +19,7 @@ ARG NIM_VERSION=2.2.10
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential clang lld cmake git curl ca-certificates xz-utils python3 \
+      build-essential clang lld cmake git curl ca-certificates xz-utils unzip python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Emscripten (emsdk) ---
@@ -45,6 +45,15 @@ ENV PATH="/root/.bun/bin:$PATH"
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Put the whole toolchain on PATH for login shells too (bash -lc resets PATH).
+RUN printf 'export EMSCRIPTEN_SDK=/opt/emsdk\nexport PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:/opt/nim/bin:/root/.bun/bin:$PATH"\n' \
+      > /etc/profile.d/wg-vf-toolchain.sh
+
+# Nim compiles {.compile.} C files (wg_vf.c) into its cache before creating the
+# cache dir, which fails on a cold cache under emscripten. Pre-create it so the
+# Nim-interop example (examples/three, entry main.nim → main_d) builds out of the box.
+RUN mkdir -p /root/.cache/nim/main_d
 
 WORKDIR /work
 CMD ["bash"]
