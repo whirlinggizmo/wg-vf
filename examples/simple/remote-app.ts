@@ -17,7 +17,9 @@ import {
   readFrameHeader,
 } from "../../src";
 
-const url = Bun.env.VF_HOST_URL ?? "ws://localhost:8787";
+const base = Bun.env.VF_HOST_URL ?? "ws://localhost:8787";
+const room = Bun.env.VF_ROOM ?? "demo";
+const url = `${base}/r/${room}`;
 const MAX_FRAMES = Number(Bun.env.VF_FRAMES ?? 5);
 // VF_JOIN=1 attaches to an already-provisioned session (Join) instead of
 // provisioning it (Init) — the multiplayer path.

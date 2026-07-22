@@ -1,5 +1,5 @@
 import {
-  VignetteHost,
+  SessionManager,
   SystemClock,
   type BytePeer,
   type HostVignetteEntry,
@@ -18,36 +18,42 @@ function toUint8Array(message: unknown): Uint8Array | null {
 const port = Number(Bun.env.VF_HOST_PORT ?? 8787);
 const hostname = String(Bun.env.VF_HOST_HOSTNAME ?? '0.0.0.0');
 
-// One shared host = one multiplayer session. The first peer's Init provisions
-// it; subsequent peers Join. Host resolution is manifest-driven (§3.1): peers
-// name "simple", never a URL.
-const entry: HostVignetteEntry = {
-  vignetteId: 'simple',
-  version: '1.0.0',
-  fixedStepUs: 16_666,
-  maxSubsteps: 4,
-  maxPeers: 8,
-  reconnectGraceMs: 5_000,
-  emptyGraceMs: 10_000,
-  create: () => createVignette(),
-};
+// A session per room key (from the URL path /r/<room>). Each room is an
+// independent VignetteHost; a torn-down room frees its key for a fresh
+// Provision. All rooms run the "simple" vignette here (manifest policy §3.1).
+function entryFor(_key: string): HostVignetteEntry {
+  return {
+    vignetteId: 'simple',
+    version: '1.0.0',
+    fixedStepUs: 16_666,
+    maxSubsteps: 4,
+    maxPeers: 8,
+    reconnectGraceMs: 5_000,
+    emptyGraceMs: 10_000,
+    create: () => createVignette(),
+  };
+}
 
-const host = new VignetteHost(entry, new SystemClock());
+const sessions = new SessionManager({ entryFor, clock: new SystemClock() });
 
-type ConnData = { listeners: Set<(bytes: Uint8Array) => void>; disconnect: () => void };
+type ConnData = { room: string; listeners: Set<(bytes: Uint8Array) => void>; disconnect: () => void };
 
 Bun.serve<ConnData>({
   port,
   hostname,
   fetch(req, server) {
-    if (server.upgrade(req, { data: { listeners: new Set(), disconnect: () => {} } })) {
+    const path = new URL(req.url).pathname;
+    const match = path.match(/^\/r\/([\w-]+)$/);
+    if (!match) {
+      return new Response('connect to /r/<room>', { status: 400 });
+    }
+    if (server.upgrade(req, { data: { room: match[1], listeners: new Set(), disconnect: () => {} } })) {
       return;
     }
     return new Response('Expected WebSocket', { status: 426 });
   },
   websocket: {
     open(ws) {
-      // Bridge this socket to the host as a BytePeer.
       const pipe: BytePeer = {
         send: (bytes) => {
           ws.send(bytes);
@@ -57,7 +63,13 @@ Bun.serve<ConnData>({
           return () => ws.data.listeners.delete(cb);
         },
       };
-      ws.data.disconnect = host.connect(pipe).disconnect;
+      const conn = sessions.connect(ws.data.room, pipe);
+      if (!conn) {
+        ws.close(1008, `unknown room ${ws.data.room}`);
+        return;
+      }
+      ws.data.disconnect = conn.disconnect;
+      console.log(`[server] peer connected to room '${ws.data.room}' (${sessions.sessionCount} live)`);
     },
     message(ws, message) {
       const bytes = toUint8Array(message);
@@ -73,10 +85,9 @@ Bun.serve<ConnData>({
   },
 });
 
-// Real-time driver: pump the host loop on a wall-clock interval. Host lifetime
-// is decoupled from any single socket (Part I §3.5).
+// Real-time driver: pump every live session, reaping any that shut down.
 setInterval(() => {
-  void host.pump();
+  void sessions.pumpAll();
 }, 16);
 
-console.log(`wg-vf v2 server on ws://${hostname}:${port} (vignette 'simple')`);
+console.log(`wg-vf v2 server on ws://${hostname}:${port} — connect to /r/<room>`);

@@ -15,6 +15,7 @@ export {
   type PeerConnection,
   type HostState,
 } from './hosts/VignetteHost.js';
+export { SessionManager, type SessionManagerOptions } from './hosts/SessionManager.js';
 export { FixedStepEngine } from './hosts/FixedStepEngine.js';
 export { HostLoop, type HostLoopVignette, type HostLoopHooks } from './hosts/HostLoop.js';
 export { PeerRegistry, PeerIdExhaustedError } from './hosts/PeerRegistry.js';
