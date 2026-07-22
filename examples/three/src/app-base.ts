@@ -1,8 +1,19 @@
 import * as THREE from "three";
-import { VignetteBridge, type VignetteType } from "../../../src";
+import {
+  messagePortBytePeer,
+  Channel,
+  SystemType,
+  encodeSystemEnvelope,
+  encodeAppEnvelope,
+  encodeInitPayload,
+  decodeEnvelope,
+  decodeReadyPayload,
+  decodeErrorPayload,
+  type BytePeer,
+  type MessagePortLike,
+} from "../../../src";
 import { decodePayload, encodePayload } from "../../codecs/json-codec";
 
-// Entity type matching the vignette
 interface Entity {
   id: number;
   x: number;
@@ -12,88 +23,127 @@ interface Entity {
   color: number;
 }
 
-export type LocalConnectOptions = {
-  mode: "local";
-  vignetteType: VignetteType;
-  moduleUrl: string;
-};
+export type VignetteKind = "js" | "wasm";
 
-export type RemoteConnectOptions = {
-  mode: "remote";
-  remoteUrl: string;
-};
+// The three.js app. The vignette runs in a Web Worker; the app talks to it over
+// a postMessage BytePeer using the ordinary envelope protocol. Vignette state
+// arrives on the App channel as JSON and drives the scene.
+export class ThreeApp {
+  private worker: Worker | null = null;
+  private peer: BytePeer | null = null;
 
-export abstract class BaseApp {
-  protected bridge = new VignetteBridge();
-  protected scene!: THREE.Scene;
-  protected camera!: THREE.PerspectiveCamera;
-  protected renderer!: THREE.WebGLRenderer;
-  protected entities: Map<number, THREE.Mesh> = new Map();
-  protected readonly vignetteType: VignetteType;
+  private scene!: THREE.Scene;
+  private camera!: THREE.PerspectiveCamera;
+  private renderer!: THREE.WebGLRenderer;
+  private readonly entities = new Map<number, THREE.Mesh>();
   private animationFrameId: number | null = null;
-  private cleanupRun: (() => void) | null = null;
   private isRendering = false;
   private resizeHandler: (() => void) | null = null;
   private renderContainer: HTMLElement | null = null;
 
-  protected constructor(vignetteType: VignetteType) {
-    this.vignetteType = vignetteType;
-  }
+  constructor(private readonly kind: VignetteKind) {}
 
-  protected getVignetteUrl(type: VignetteType): string {
-    switch (type) {
-      case "wasm":
-        return new URL("../vignette/nim/out/three-vignette_wasm.js", import.meta.url).href;
-      case "js":
-        return new URL("../vignette/ts/out/three-vignette.js", import.meta.url).href;
-    }
-  }
-
-  abstract getConnectOptions(): LocalConnectOptions | RemoteConnectOptions;
-  abstract getInitPayload(): Uint8Array;
-
-  protected log(...args: any[]) {
+  private log(...args: unknown[]): void {
     console.log(`[three-app]`, ...args);
   }
 
-  protected initRenderer(container: HTMLElement): void {
+  // --- session ------------------------------------------------------------
+
+  async run(container: HTMLElement): Promise<void> {
+    this.initRenderer(container);
+
+    this.worker = new Worker(new URL("./three-worker.ts", import.meta.url), {
+      type: "module",
+      name: this.kind,
+    });
+    this.peer = messagePortBytePeer(this.worker as unknown as MessagePortLike);
+    this.peer.onBytes((bytes) => this.onBytes(bytes));
+
+    // Provision the "three" vignette; SpawnPlayer follows on Ready.
+    this.peer.send(
+      encodeSystemEnvelope(
+        SystemType.Init,
+        encodeInitPayload({
+          vignetteId: "three",
+          initPayload: encodePayload({ type: "Init", scene: "three-demo" }),
+        }),
+      ),
+    );
+    this.log(`provisioning '${this.kind}' vignette in worker`);
+  }
+
+  sendMessage(msg: unknown): void {
+    this.peer?.send(encodeAppEnvelope(encodePayload(msg)));
+  }
+
+  spawnEntity(): void {
+    this.sendMessage({ type: "SpawnRandomEntity" });
+  }
+
+  disconnect(): void {
+    this.worker?.terminate();
+    this.worker = null;
+    this.peer = null;
+    this.disposeRenderer();
+  }
+
+  private onBytes(bytes: Uint8Array): void {
+    const env = decodeEnvelope(bytes);
+    if (env.channel === Channel.System) {
+      if (env.systemType === SystemType.Ready) {
+        this.log("ready:", decodeReadyPayload(env.payload));
+        this.sendMessage({ type: "SpawnPlayer" });
+      } else if (env.systemType === SystemType.Error) {
+        this.log("error:", decodeErrorPayload(env.payload));
+      }
+      return;
+    }
+    if (env.channel === Channel.App) {
+      this.handleVignetteMessage(env.payload);
+    }
+  }
+
+  private handleVignetteMessage(payload: Uint8Array): void {
+    const msg = decodePayload(payload) as { type: string; entity?: Entity; entities?: Entity[] };
+    switch (msg.type) {
+      case "EntitySpawned":
+      case "EntityMoved":
+        if (msg.entity) this.updateEntity(msg.entity);
+        break;
+      case "StateUpdate":
+        if (msg.entities) {
+          for (const entity of msg.entities) this.updateEntity(entity);
+          const present = new Set(msg.entities.map((e) => e.id));
+          for (const [id] of this.entities) if (!present.has(id)) this.removeEntity(id);
+        }
+        break;
+    }
+  }
+
+  // --- three.js rendering -------------------------------------------------
+
+  private initRenderer(container: HTMLElement): void {
     this.renderContainer = container;
     container.replaceChildren();
 
-    // Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x222222);
 
-    // Camera
-    this.camera = new THREE.PerspectiveCamera(
-      75,
-      container.clientWidth / container.clientHeight,
-      0.1,
-      1000
-    );
-    this.camera.position.z = 15;
-    this.camera.position.y = 5;
+    this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+    this.camera.position.set(0, 5, 15);
     this.camera.lookAt(0, 0, 0);
 
-    // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(this.renderer.domElement);
 
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0x404040, 2);
-    this.scene.add(ambientLight);
+    this.scene.add(new THREE.AmbientLight(0x404040, 2));
+    const dir = new THREE.DirectionalLight(0xffffff, 2);
+    dir.position.set(10, 10, 10);
+    this.scene.add(dir);
+    this.scene.add(new THREE.GridHelper(20, 20));
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
-    directionalLight.position.set(10, 10, 10);
-    this.scene.add(directionalLight);
-
-    // Grid helper
-    const gridHelper = new THREE.GridHelper(20, 20);
-    this.scene.add(gridHelper);
-
-    // Handle resize
     this.resizeHandler = () => {
       this.camera.aspect = container.clientWidth / container.clientHeight;
       this.camera.updateProjectionMatrix();
@@ -101,185 +151,68 @@ export abstract class BaseApp {
     };
     window.addEventListener("resize", this.resizeHandler);
 
-    // Start render loop
     this.isRendering = true;
     this.animate();
   }
 
   private animate = (): void => {
-    if (!this.isRendering) {
-      return;
-    }
-
+    if (!this.isRendering) return;
     this.animationFrameId = requestAnimationFrame(this.animate);
     this.renderer.render(this.scene, this.camera);
   };
 
-  protected createEntityMesh(entity: Entity): THREE.Mesh {
-    let geometry: THREE.BufferGeometry;
-
-    if (entity.type === "sphere") {
-      geometry = new THREE.SphereGeometry(0.5, 32, 32);
-    } else {
-      geometry = new THREE.BoxGeometry(1, 1, 1);
-    }
-
-    const material = new THREE.MeshStandardMaterial({
-      color: entity.color,
-      roughness: 0.5,
-      metalness: 0.1,
-    });
-
+  private createEntityMesh(entity: Entity): THREE.Mesh {
+    const geometry =
+      entity.type === "sphere" ? new THREE.SphereGeometry(0.5, 32, 32) : new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial({ color: entity.color, roughness: 0.5, metalness: 0.1 });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(entity.x, entity.y, entity.z);
     mesh.userData = { id: entity.id };
-
     return mesh;
   }
 
-  protected updateEntity(entity: Entity): void {
+  private updateEntity(entity: Entity): void {
     let mesh = this.entities.get(entity.id);
-
     if (!mesh) {
-      // Create new mesh
       mesh = this.createEntityMesh(entity);
       this.scene.add(mesh);
       this.entities.set(entity.id, mesh);
-      this.log("Created entity:", entity.id, entity.type);
     } else {
-      // Update position
       mesh.position.set(entity.x, entity.y, entity.z);
     }
   }
 
-  protected removeEntity(id: number): void {
+  private removeEntity(id: number): void {
     const mesh = this.entities.get(id);
-    if (mesh) {
-      this.scene.remove(mesh);
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
-      this.entities.delete(id);
-      this.log("Removed entity:", id);
-    }
-  }
-
-  protected handleVignetteMessage(payload: Uint8Array): void {
-    const msg = decodePayload(payload) as { type: string; entity?: Entity; entities?: Entity[] };
-
-    switch (msg.type) {
-      case "EntitySpawned":
-        if (msg.entity) {
-          this.updateEntity(msg.entity);
-        }
-        break;
-
-      case "EntityMoved":
-        if (msg.entity) {
-          this.updateEntity(msg.entity);
-        }
-        break;
-
-      case "StateUpdate":
-        if (msg.entities) {
-          // Update all entities
-          for (const entity of msg.entities) {
-            this.updateEntity(entity);
-          }
-
-          // Remove entities that are no longer present
-          const currentIds = new Set(msg.entities.map((e) => e.id));
-          for (const [id] of this.entities) {
-            if (!currentIds.has(id)) {
-              this.removeEntity(id);
-            }
-          }
-        }
-        break;
-    }
-  }
-
-  async run(container: HTMLElement): Promise<void> {
-    this.initRenderer(container);
-
-    try {
-      await this.bridge.connect(this.getConnectOptions());
-      await this.bridge.init(this.getInitPayload());
-      await this.bridge.handleMessage(encodePayload({ type: "SpawnPlayer" }));
-
-      this.log("Connected to vignette");
-
-      // Spawn a few random entities
-      //for (let i = 0; i < 5; i++) {
-      //  await this.bridge.handleMessage(encodePayload({ type: "SpawnRandomEntity" }));
-      //}
-
-      // Poll for messages from vignette
-      const pollInterval = setInterval(() => {
-        const messages = this.bridge.pollOutbox();
-        for (const payload of messages) {
-          this.handleVignetteMessage(payload);
-        }
-      }, 16); // ~60fps
-
-      // Cleanup on disconnect
-      return new Promise((resolve) => {
-        this.cleanupRun = () => {
-          clearInterval(pollInterval);
-          this.disposeRenderer();
-          resolve();
-        };
-      });
-    } catch (err) {
-      this.disposeRenderer();
-      throw err;
-    }
-  }
-
-  async disconnect(): Promise<void> {
-    try {
-      await this.bridge.disconnect();
-    } finally {
-      this.cleanupRun?.();
-      this.cleanupRun = null;
-    }
+    if (!mesh) return;
+    this.scene.remove(mesh);
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+    this.entities.delete(id);
   }
 
   private disposeRenderer(): void {
     this.isRendering = false;
-
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
-
     if (this.resizeHandler) {
       window.removeEventListener("resize", this.resizeHandler);
       this.resizeHandler = null;
     }
-
-    if (this.scene) {
-      this.scene.traverse((object) => {
-        const mesh = object as THREE.Mesh;
-        mesh.geometry?.dispose();
-
-        const material = mesh.material;
-        if (Array.isArray(material)) {
-          for (const entry of material) {
-            entry.dispose();
-          }
-        } else {
-          material?.dispose();
-        }
-      });
-    }
-
+    this.scene?.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      mesh.geometry?.dispose();
+      const material = mesh.material;
+      if (Array.isArray(material)) material.forEach((m) => m.dispose());
+      else material?.dispose();
+    });
     this.entities.clear();
-
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer.domElement.remove();
     }
-
     this.renderContainer?.replaceChildren();
     this.renderContainer = null;
   }

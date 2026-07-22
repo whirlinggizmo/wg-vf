@@ -12,7 +12,7 @@
     "vignette:ts:watch": "vite build --config vignette/ts/vite.config.ts --watch",
     "vignette:wasm:build": "cd vignette/nim && nim build wasm",
     "vignette:wasm:watch": "npm run vignette:wasm:build && onchange 'vignette/nim/src/**' -- npm run vignette:wasm:build",
-    "vignette:all": "cd vignette/nim && nim build all",
+    "vignette:all": "cd vignette/nim && nim build wasm",
     "vignette:clean": "cd vignette/nim && nim clean && rimraf vignette/ts/out"
   },
   "devDependencies": {

@@ -12,7 +12,7 @@ No backwards compatibility: v1 is deleted outright, v2 promoted to canonical nam
 - [x] Deleted v1 tests (helpers, codec, fixtures, integration, old unit host/transport tests) and obsolete v1 docs (framework spec, runtime ABI, symmetry/accuracy analyses).
 - [x] Kept `transports/` (byte pipes) — valid for v2; add a `BytePeer` adapter for the WS transport in Phase 7.
 - [x] `examples/simple` rewritten to v2 (remote-app, local-app, local-worker, js vignette) + `examples/remote-server.ts`; orphaned v1 files removed (app-base, config, simple/vignette/wasm). Scripts: `example:server` / `example:remote` / `example:local`.
-- [ ] `examples/three` + `examples/codecs` remain v1 (a separate three.js subproject, broken against v2). Rewrite or remove.
+- [x] `examples/three` rewritten to v2: the vignette (TS + Nim→WASM) runs in a Web Worker via `runWorkerHost`; the app talks over `messagePortBytePeer` with envelopes, state arrives on the App channel. Both bindings verified headlessly (`test/examples/three-vignette.test.ts`); the three subproject typechecks. `examples/codecs` (JSON helpers) retained.
 - [ ] PAR-04 (WASM staging cap) and T-GOLD (promote inline golden bytes to files) — minor.
 - [x] Fold the three open decisions into Part I (reconnect-gap drop, frame silence, 1 MiB payload cap).
 - [x] Draft Part II (shared host scaffolding).

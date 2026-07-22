@@ -80,16 +80,13 @@ function createSidebarControls() {
     </div>
   `;
 
-  document.getElementById("spawn-entity")?.addEventListener("click", async () => {
-    if (currentApp) {
-      const { encodePayload } = await import("../../codecs/json-codec");
-      await currentApp["bridge"].handleMessage(encodePayload({ type: "SpawnRandomEntity" }));
-    }
+  document.getElementById("spawn-entity")?.addEventListener("click", () => {
+    currentApp?.spawnEntity();
   });
 
-  document.getElementById("disconnect")?.addEventListener("click", async () => {
+  document.getElementById("disconnect")?.addEventListener("click", () => {
     if (currentApp) {
-      await currentApp.disconnect();
+      currentApp.disconnect();
       currentApp = null;
       showLauncher();
     }

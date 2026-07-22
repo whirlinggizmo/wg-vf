@@ -1,7 +1,7 @@
 import std/json
 import std/random
 import std/math
-import vignettes/vignette
+import vignettes/wasm/vignette
 
 
 # Initialize random seed
@@ -28,10 +28,10 @@ proc log(message: string) =
 
 proc sendMessage(msg: JsonNode) =
   let jsonStr = $msg
-  var bytes = newSeq[byte](jsonStr.len)
+  var bytes = newSeq[Byte](jsonStr.len)
   for i in 0 ..< jsonStr.len:
-    bytes[i] = byte(jsonStr[i])
-  discard enqueueOutbox(bytes)
+    bytes[i] = Byte(jsonStr[i])
+  broadcast(bytes)
 
 proc bytesToString(data: openArray[Byte]): string =
   result = newString(data.len)
@@ -73,7 +73,8 @@ proc onInit(data: openArray[Byte]) =
   for i in 0 ..< 5:
     discard spawnRandomEntity()
 
-proc onHandleMessage(data: openArray[Byte]): uint32 =
+proc onHandleMessage(senderId: uint32, data: openArray[Byte]): uint32 =
+  discard senderId
   let text = bytesToString(data)
   let msg = parseJson(text)
   
