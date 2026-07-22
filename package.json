@@ -1,9 +1,20 @@
 {
   "name": "@whirlinggizmo/wg-vf",
   "version": "0.1.0",
-  "description": "Whirling Gizmo Vignette Framework",
+  "description": "Vignette Framework — run self-contained simulation modules behind a host boundary, identical across TS, WASM, and native, over local (worker) or remote (WebSocket) transports",
   "type": "module",
   "license": "MIT",
+  "author": "Whirling Gizmo <rknopf@whirlinggizmo.com>",
+  "keywords": [
+    "vignette",
+    "simulation",
+    "wasm",
+    "webworker",
+    "websocket",
+    "multiplayer",
+    "deterministic",
+    "game-networking"
+  ],
   "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,13 +26,18 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
-    }
+    },
+    "./native/wg_vf.h": "./dist/native/wg_vf.h",
+    "./native/vignette.nim": "./dist/native/vignette.nim"
   },
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-native.mjs",
     "rebuild": "npm run clean && npm run build",
     "check": "tsc --noEmit -p tsconfig.build.json",
     "test": "bun test",

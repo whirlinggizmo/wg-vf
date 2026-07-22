@@ -161,10 +161,20 @@ same code, both exposing the [`wg_vf.h`](../src/vignettes/wasm/wg_vf.h) C ABI. Y
 implement handler procs and register them; the framework glue owns the outbox
 ring buffer and the frame buffer.
 
-Nim example (using `src/vignettes/wasm/vignette.nim`):
+**The two assets you build against ship with the package:**
+
+- C header — `@whirlinggizmo/wg-vf/native/wg_vf.h`
+- Nim glue — `@whirlinggizmo/wg-vf/native/vignette.nim`
+
+Physically at `node_modules/@whirlinggizmo/wg-vf/dist/native/`. For C/Rust/Zig,
+add that directory to your include path and `#include <wg_vf.h>`. For Nim, add it
+to `--path` and `import vignette`.
+
+Nim example:
 
 ```nim
-import "path/to/src/vignettes/wasm/vignette"
+# nim c --path:node_modules/@whirlinggizmo/wg-vf/dist/native ...
+import vignette
 
 var counter: uint32 = 0
 var seqNo: uint32 = 0
