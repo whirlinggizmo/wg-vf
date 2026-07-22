@@ -20,7 +20,6 @@ Per-phase checkboxes below may lag the summary lines; trust this block and the
   loading already covers real loading. This is the *client-supplied* URL escape
   hatch (dev convenience + security hole). Likely never wanted in prod.
 - [x] **ABI-13/14 tests** — loop ordering + message-between-pumps, in the conformance battery.
-  fixedTick burst) and message-delivered-between-pumps. Mechanism already holds.
 - [x] **T-GOLD** — golden envelope bytes in test/fixtures/envelope-golden.json, doc-versioning note included.
 - [ ] **WS conformance driving** — run the deterministic battery through a real
   socket adapter (needs a pump/clock control channel). Low value; live smoke covers it.
