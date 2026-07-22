@@ -56,9 +56,11 @@ Landed in `src/hosts/FixedStepEngine.ts` + `src/hosts/Clock.ts`. Tests: `test/un
 TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes: `src/testing/vignettes.ts` (echo/counter/chaos, T-VIG-*).
 
 - [x] `Vignette`: `handleMessage(senderId, payload)`, `peerJoined(id)`, `peerLeft(id, reason)`, `outboxPop(): { targetId, payload }`, `currentFrame()` accessor, `PeerLeftReason`.
-- [ ] WASM `vf_*`: `vf_handle_message(sender,ptr,len)`, `vf_peer_joined`, `vf_peer_left`, u16 target-prefixed outbox, `vf_frame_offset/len/seq`.
-- [ ] `wg_vf.h`: same symbol set as a plain C API (one source → wasm32 + native).
-- [ ] **(gate)** PAR-01..05 green (TS↔WASM binding parity; native build compiles clean & passes vectors).
+- [x] WASM `vf_*`: `vf_handle_message(sender,ptr,len)`, `vf_peer_joined`, `vf_peer_left`, u16 target-prefixed outbox, `vf_frame_offset/len/seq`. Nim glue in `src/vignettes/wasm/vignette.nim`; host loader `src/vignettes/WasmVignette.ts`.
+- [x] `wg_vf.h`: canonical C API (`src/vignettes/wasm/`) — one Nim source → wasm32 (emscripten). Reference `counter` builds via `npm run test:wasm:build`.
+- [x] **(gate, partial)** PAR-02 green: Nim→WASM `counter` byte-matches TS across 25 iters; peer callbacks/handleMessage trap-free; runs through `VignetteHost` end-to-end.
+- [ ] Remaining PAR: `echo` reference vignette (PAR-01); native `.so` build + `wg_vf.h` compiles clean −Wall (PAR-05); WASM trap → sim-fatal path (ABI-18); oversized-inbound staging rejection (PAR-04).
+- [ ] **DET-03**: drive the WASM `counter` through the full cross-host determinism suite (needs T-SCRIPT + trace capture).
 
 ## Phase 4 — Peer registry & session (Appendix A #3/#5) — CORE DONE
 
