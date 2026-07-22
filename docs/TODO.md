@@ -19,9 +19,9 @@ Per-phase checkboxes below may lag the summary lines; trust this block and the
 - [ ] **Dev mode** (`allowClientModuleUrls`, Part I §3.7) — optional; module-form
   loading already covers real loading. This is the *client-supplied* URL escape
   hatch (dev convenience + security hole). Likely never wanted in prod.
-- [ ] **ABI-13/14 tests** — explicit assertions for loop ordering (tick then
+- [x] **ABI-13/14 tests** — loop ordering + message-between-pumps, in the conformance battery.
   fixedTick burst) and message-delivered-between-pumps. Mechanism already holds.
-- [ ] **T-GOLD** — promote inline golden envelope bytes to versioned fixture files.
+- [x] **T-GOLD** — golden envelope bytes in test/fixtures/envelope-golden.json, doc-versioning note included.
 - [ ] **WS conformance driving** — run the deterministic battery through a real
   socket adapter (needs a pump/clock control channel). Low value; live smoke covers it.
 - [ ] **Perf pass** — reduce ingress/egress payload copies; reusable staging.
@@ -50,7 +50,7 @@ Exported from `@whirlinggizmo/wg-vf/testing`.
 - [ ] **T-VIG-ECHO**, **T-VIG-COUNTER**, **T-VIG-CHAOS** — reference vignettes (TS).
 - [ ] **T-VIG-PARITY** — `echo`/`counter` in C-compiled-to-WASM from `wg_vf.h`, same sources as parity tests.
 - [ ] **T-SCRIPT** — input-script format + deterministic script runner.
-- [ ] **T-GOLD** — golden hex-dump fixture directory (currently inline in `envelope-v2.test.ts`; promote to files with the doc-versioning gate, test plan §6).
+- [x] **T-GOLD** — golden envelope bytes in test/fixtures/envelope-golden.json, doc-versioning note included.
 - [ ] **Harness entry** — `runHostConformance(makeHost, opts)` (needs the v2 host, Phase 4).
 
 ## Phase 1 — Envelope v2 (Appendix A #1; unblocks everything) — CORE DONE

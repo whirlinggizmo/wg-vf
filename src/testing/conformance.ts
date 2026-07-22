@@ -71,6 +71,20 @@ class FaultyRecorder extends BaseVignette {
   }
 }
 
+/** Records the order of tick / fixedTick / handleMessage calls (ABI-13/14). */
+class OpRecorder extends BaseVignette {
+  readonly log: string[] = [];
+  override tick(): void {
+    this.log.push('tick');
+  }
+  override fixedTick(): void {
+    this.log.push('fixed');
+  }
+  override handleMessage(): void {
+    this.log.push('msg');
+  }
+}
+
 // --- scenario builder ------------------------------------------------------
 
 function buildEntry(create: () => Vignette, over: Partial<VignetteConfig> = {}): ManifestEntry {
@@ -270,6 +284,40 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     eq(p.apps().length, 0, 'nothing delivered');
     eq(p.errors().length, 0, 'not an error');
     eq(host.getState(), 'READY', 'sim survives');
+  });
+
+  // --- loop ordering & message timing (§2.3) ---
+  add('ABI-13', 'one pump runs exactly one tick, then the fixedTick burst', async () => {
+    const rec = new OpRecorder();
+    const { host, clock, connect } = scenario(makeHost, () => rec);
+    connect().init('sim');
+    await host.whenIdle();
+    rec.log.length = 0;
+    clock.advance(STEP * 3); // 3 substeps (< maxSubsteps 4)
+    await host.pump();
+    jsonEq(rec.log, ['tick', 'fixed', 'fixed', 'fixed'], 'tick then contiguous fixedTick burst');
+  });
+
+  add('ABI-14', 'App messages land between pumps, never between fixedTick substeps', async () => {
+    const rec = new OpRecorder();
+    const { host, clock, connect } = scenario(makeHost, () => rec);
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    rec.log.length = 0;
+
+    // Enqueue a message, then a multi-substep pump. The message is its own op
+    // (delivered between iterations), so it never splits the burst.
+    p.app(new Uint8Array([1]));
+    clock.advance(STEP * 3);
+    await host.pump();
+    await host.whenIdle();
+
+    assert(rec.log.includes('msg'), 'message delivered');
+    const firstFixed = rec.log.indexOf('fixed');
+    const lastFixed = rec.log.lastIndexOf('fixed');
+    const burst = rec.log.slice(firstFixed, lastFixed + 1);
+    assert(burst.every((op) => op === 'fixed'), 'fixedTick burst is contiguous — no message between substeps');
   });
 
   // --- error containment ---

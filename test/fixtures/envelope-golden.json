@@ -1,0 +1,45 @@
+{
+  "_note": "Golden envelope bytes for wire format v2. `hex` is the exact on-wire byte string; the other fields feed encodeEnvelope. A change to any hex here requires a matching delta in docs/architecture-part1.md §1 in the same PR (test plan §6 version discipline) — envelope changes must never be silent.",
+  "fixtures": [
+    {
+      "name": "app-basic",
+      "channel": 1,
+      "systemType": 0,
+      "clientId": 5,
+      "payloadHex": "010203",
+      "hex": "020100000000050003000000010203"
+    },
+    {
+      "name": "app-empty",
+      "channel": 1,
+      "systemType": 0,
+      "clientId": 0,
+      "payloadHex": "",
+      "hex": "020100000000000000000000"
+    },
+    {
+      "name": "system-ping",
+      "channel": 0,
+      "systemType": 7,
+      "clientId": 258,
+      "payloadHex": "aabb",
+      "hex": "020000000700020102000000aabb"
+    },
+    {
+      "name": "system-shutdown-empty",
+      "channel": 0,
+      "systemType": 5,
+      "clientId": 0,
+      "payloadHex": "",
+      "hex": "020000000500000000000000"
+    },
+    {
+      "name": "frame-basic",
+      "channel": 2,
+      "systemType": 0,
+      "clientId": 0,
+      "payloadHex": "4433221188776655ff",
+      "hex": "0202000000000000090000004433221188776655ff"
+    }
+  ]
+}
