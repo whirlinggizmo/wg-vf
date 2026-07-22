@@ -1,26 +1,102 @@
-# TODO
+# wg-vf TODO — v2 Migration
 
-## Additional Architecture Follow-ups
+Tracks the work implied by [Architecture Part I (Contracts)](./architecture-part1.md), [Part II (Reference Host Scaffolding)](./architecture-part2.md), and the [Conformance Test Plan](./conformance-test-plan.md). Ordered by dependency (Part II Appendix). Acceptance = the conformance battery green on Local(js), Local(wasm), Remote(loopback) + DET + native `wg_vf.h` build (test plan §6 "Definition of done").
 
-- Keep the boundary between `VignetteBridgeWorker` and `LocalVignetteHost` clear so the worker stays focused on session/RPC orchestration and the host stays focused on vignette lifecycle ownership.
-- ~~Review local versus remote message-flow symmetry and decide where differences are intentional versus accidental.~~ ✅ Done - see [message_flow_symmetry_analysis.md](./message_flow_symmetry_analysis.md)
-- ~~Add lifecycle and failure-path tests for init, shutdown, reconnect, outbox draining, and host error handling.~~ ✅ Done
-- ~~Low priority: consider normalizing all system payloads to binary instead of keeping `Ready` and `Error` as JSON while `Ping`/`Pong` are binary.~~ ✅ Done - ENVELOPE_VERSION bumped to 2
-- Evaluate runtime efficiency options across JS, WASM, and future native hosts:
-  - reduce payload copies on ingress/egress where host boundaries allow it
-  - consider reusable inbox/outbox staging and batching strategies
-  - document which optimizations are transport-local versus ABI-level contract changes
+Legend: `[ ]` todo · `[~]` in progress · `[x]` done · **(gate)** = conformance milestone.
 
-## Future Work (Lower Priority)
+## Clean-slate replacement
 
-- **Session Architecture**: Design for multi-client scenarios:
-  - Model A: Multi-tenant (each client gets isolated vignette + worker)
-  - Model B: Multiplayer (single shared vignette, multiple client sessions)
-  - Session ID in envelope vs first message trade-offs
-  - Host-side session multiplexing
+No backwards compatibility: v1 is deleted outright, v2 promoted to canonical names (no `V2` suffixes, no `/v2/` dirs, no shims/aliases). Assume no existing consumers.
 
-## Suggested Order
+- [x] Deleted v1 source: old `envelope/`, `Vignette`/`BaseVignette`, `BaseVignetteHost`/`Local`/`Remote`VignetteHost, `bridge/` (VignetteBridge + worker), `WasmVignette` + `vignette.h`/`.nim`.
+- [x] Deleted v1 tests (helpers, codec, fixtures, integration, old unit host/transport tests) and obsolete v1 docs (framework spec, runtime ABI, symmetry/accuracy analyses).
+- [x] Kept `transports/` (byte pipes) — valid for v2; add a `BytePeer` adapter for the WS transport in Phase 7.
+- [ ] **`examples/` are stale** (consumed the deleted bridge/host API). Not in build/test gates. Rewrite against the v2 host in Phase 7/8 or delete.
+- [x] Fold the three open decisions into Part I (reconnect-gap drop, frame silence, 1 MiB payload cap).
+- [x] Draft Part II (shared host scaffolding).
 
-1. ~~Add lifecycle and failure-path tests before further abstraction work.~~ ✅ Done
-2. ~~Review local versus remote message-flow symmetry and decide where differences are intentional.~~ ✅ Done
-3. Keep the worker/host boundary clear as new behavior is added.
+## Phase 0 — Test infrastructure (test plan §0; prerequisites, build alongside Phase 1)
+
+Exported from `@whirlinggizmo/wg-vf/testing`.
+
+- [x] **T-CLOCK** — `Clock` interface (`src/hosts/Clock.ts`) + `VirtualClock.advance(dtUs)` (`src/testing`). `pump()` lands with `HostLoop` (Phase 2/host).
+- [x] **T-PIPE** — `createLoopbackPipe` / `LoopbackBytePipe` (`BytePeer` pair). Doubles as loopback transport.
+- [ ] **T-LOSSY** — `LossyPipe` decorator (drop/reorder/duplicate) for Frame tests.
+- [ ] **T-VIG-ECHO**, **T-VIG-COUNTER**, **T-VIG-CHAOS** — reference vignettes (TS).
+- [ ] **T-VIG-PARITY** — `echo`/`counter` in C-compiled-to-WASM from `wg_vf.h`, same sources as parity tests.
+- [ ] **T-SCRIPT** — input-script format + deterministic script runner.
+- [ ] **T-GOLD** — golden hex-dump fixture directory (currently inline in `envelope-v2.test.ts`; promote to files with the doc-versioning gate, test plan §6).
+- [ ] **Harness entry** — `runHostConformance(makeHost, opts)` (needs the v2 host, Phase 4).
+
+## Phase 1 — Envelope v2 (Appendix A #1; unblocks everything) — CORE DONE
+
+Landed in `src/envelope/v2/` (parallel to v1 until hosts migrate). Tests: `test/unit/envelope-v2.test.ts`, `test/unit/envelope-v2-fuzz.test.ts`.
+
+- [x] Header 8 → 12 bytes; `channel` replaces `messageKind`; add `clientId`, `flags`, `reserved`.
+- [x] Channels: System=0 / App=1 / Frame=2; Frame payload prefix `frameSeq:u32, sourceTick:u32`.
+- [x] Binary `Init`/`Join`/`Ready`/`Error`/`Ping`/`Pong` payloads; `Join`/`Leave` system types; `ErrorCode` enum (`Generic..PeerFault`).
+- [x] Strict decode: reject bad version/flags/reserved/channel/systemType, payloadLen mismatch, and **over-cap payload before allocation** (§1.6).
+- [x] Modular `frameSeq` newer-than comparison (`frameSeqIsNewer`, used both host- and peer-side).
+- [x] **(gate, envelope-level)** ENV-01..09, 17, 18, 23, 25 green.
+- [ ] **(gate, host-level, deferred to Phase 4/6)** ENV-10..16, 19..22, 24 — clientId stamping, routing, coalescing, `Ready`/`Error`/`Shutdown` behavior. Need a host.
+
+## Phase 2 — `FixedStepEngine` (Appendix A #3 core; independently testable) — CORE DONE
+
+Landed in `src/hosts/FixedStepEngine.ts` + `src/hosts/Clock.ts`. Tests: `test/unit/FixedStepEngine.test.ts`.
+
+- [x] Clock-free `FixedStepEngine` (`plan`/`consume`) — accumulator extracted from the loop math.
+- [x] **Behavior change: debt → drop-time clamp** after `maxSubsteps` (Part I §2.3). Pre-v2 host retains debt; engine discards whole-step debt, keeps sub-step phase.
+- [x] Injectable `Clock` seam (`SystemClock` / `VirtualClock`).
+- [x] **(gate, engine-level)** ABI-07..12 green (exactness, monotonicity, accumulator, clamp, drop-time, wraparound).
+- [x] **`HostLoop`** (`pump()`) wiring `Clock` + engine + vignette (`src/hosts/HostLoop.ts`); post-burst frame publish; drain after each op.
+- [ ] **(gate, host-level)** ABI-13/14 (loop ordering, message-between-pumps timing) — need dedicated tests; the mechanism holds (single clock read, op-chain serialization).
+
+## Phase 3 — ABI extension (Appendix A #2) — TS BINDING DONE
+
+TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes: `src/testing/vignettes.ts` (echo/counter/chaos, T-VIG-*).
+
+- [x] `Vignette`: `handleMessage(senderId, payload)`, `peerJoined(id)`, `peerLeft(id, reason)`, `outboxPop(): { targetId, payload }`, `currentFrame()` accessor, `PeerLeftReason`.
+- [ ] WASM `vf_*`: `vf_handle_message(sender,ptr,len)`, `vf_peer_joined`, `vf_peer_left`, u16 target-prefixed outbox, `vf_frame_offset/len/seq`.
+- [ ] `wg_vf.h`: same symbol set as a plain C API (one source → wasm32 + native).
+- [ ] **(gate)** PAR-01..05 green (TS↔WASM binding parity; native build compiles clean & passes vectors).
+
+## Phase 4 — Peer registry & session (Appendix A #3/#5) — CORE DONE
+
+`src/hosts/PeerRegistry.ts` + `src/hosts/VignetteHost.ts`. Tests: `test/unit/VignetteHost.test.ts`. Host drives one vignette over `BytePeer` transports with an op-chain that serializes all ABI ops (Part I §2.2 for free).
+
+- [x] `PeerRegistry` + `connect(pipe)` per-transport attachment (replaces `setSendBytes`); identity stamping, mint/retire (never reuse), unicast-or-drop routing (Part II §5).
+- [x] State machine IDLE→READY; Provision (Init) / Join-against-READY / Leave verbs; founding peer admitted on Init (Part I §3.3).
+- [x] Containment: peer-fault (handleMessage throw → `Error(PeerFault)` + evict, sim survives) vs sim-fatal (host-driven op throw → broadcast Error + shutdown); oversized emission = sim-fatal.
+- [x] Frame publish: post-burst snapshot-by-value, silent on zero-step (Part I §1.4).
+- [x] **(gate, partial)** ENV-10/11/12/15/21/22/23, SES-01/08/09/10/11/12, ABI-15/16/17/20/22 green.
+- [ ] **Reconnect**: `resumeToken` in `Ready`; grace re-bind without `peerLeft`/`peerJoined`; gap traffic dropped (Part I §3.3). Abrupt drop currently evicts as `TimedOut` immediately (no grace yet).
+- [ ] **Lifetime**: `reconnectGraceMs` + `emptyGraceMs` timers; host-owned shutdown (Part I §3.5).
+- [ ] Remaining SES: SES-02/07/13..22 (reconnect, lifetime, trust) and ENV-13/16/19/20/24.
+- [ ] Promote the test's inline `makePeer` helper into `runHostConformance` (test plan §6) once reconnect/lifetime land.
+
+## Phase 5 — Manifest resolution (Appendix A #4)
+
+- [ ] `Manifest` type + loader/validator (fail-fast at construction); pure `resolveVignette()` (Part II §4).
+- [ ] Reimplement `resolveInitPayload` as manifest resolution; `vignetteFactory` becomes an in-memory manifest entry.
+- [ ] Gate URL provisioning behind `allowClientModuleUrls` (Part I §3.7).
+- [ ] Hosts (Local + Remote) constructed with a manifest; LocalVignetteHost consumes the same format (SES-06).
+
+## Phase 6 — Frame publication & error containment (Appendix A #6)
+
+- [ ] `FramePublisher`: post-burst snapshot-by-value, silent on zero-step pumps; per-pipe coalesce/datagram hint (Part II §6).
+- [ ] Containment dispatch: peer-fault vs sim-fatal wrapper; WASM trap always sim-fatal (Part II §7).
+- [ ] **(gate)** ABI-15..22 green (containment + frame publication).
+
+## Phase 7 — Reference hosts rewired (Appendix A #5/#6; Part II §8)
+
+- [ ] TS worker host: worker RPC + loopback `BytePeer`; keep worker(session)/host(lifecycle) boundary.
+- [ ] Remote host & reference server: WebSocket⇄`BytePeer`; **host lifetime decoupled from socket lifetime** (session-keyed host map, SES-17); WebSocket frame coalescing.
+- [ ] **(gate)** DET-01..05 green (cross-host determinism — the crown jewel).
+
+## Phase 8 — Dogfood
+
+- [ ] Rest Easy walking-skeleton sim becomes conformance consumer #4; further framework work requires a Rest Easy-driven need (test plan §6 DoD).
+
+## Carried over from v1 (still valid)
+
+- [ ] Reduce payload copies on ingress/egress where host boundaries allow; reusable inbox/outbox staging; document transport-local vs ABI-level optimizations. (Revisit against the v2 targeted-outbox + frame paths.)

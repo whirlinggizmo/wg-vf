@@ -1,223 +1,175 @@
-import type { VignetteType } from '../vignettes/Vignette.js';
+// Binary System-message payloads for envelope v2 (Part I §1.5). All System
+// payloads are binary in v2 — the v1 JSON forms for Ready/Error are dropped.
+// Decoders return null on malformed input (a payload-level concern the host
+// turns into an Error), never throw.
+
+import { ErrorCode } from './types.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-// Payload sizes
-const PING_PAYLOAD_SIZE = 12; // sequence: u32 + sentAtMs: f64
-const READY_PAYLOAD_SIZE = 2; // ready: u8 + vignetteType: u8
+function writeLenPrefixed(parts: number[], bytes: Uint8Array): void {
+  // Helper builds a growable number[] then callers pack; kept simple/explicit.
+  parts.push(
+    bytes.length & 0xff,
+    (bytes.length >>> 8) & 0xff,
+    (bytes.length >>> 16) & 0xff,
+    (bytes.length >>> 24) & 0xff,
+  );
+  for (const b of bytes) parts.push(b);
+}
 
-// Vignette type enum values for binary encoding
-const VIGNETTE_TYPE_JS = 0;
-const VIGNETTE_TYPE_WASM = 1;
+function readLenPrefixed(
+  payload: Uint8Array,
+  offset: number,
+): { bytes: Uint8Array; next: number } | null {
+  if (offset + 4 > payload.length) return null;
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const len = view.getUint32(offset, true);
+  const start = offset + 4;
+  if (start + len > payload.length) return null;
+  return { bytes: payload.slice(start, start + len), next: start + len };
+}
+
+// ---------------------------------------------------------------------------
+// Init (peer → host): vignetteId string, followed by opaque init bytes.
+// ---------------------------------------------------------------------------
+
+export interface InitPayload {
+  vignetteId: string;
+  initPayload: Uint8Array;
+}
+
+export function encodeInitPayload(p: InitPayload): Uint8Array {
+  const parts: number[] = [];
+  writeLenPrefixed(parts, textEncoder.encode(p.vignetteId));
+  const head = Uint8Array.from(parts);
+  const out = new Uint8Array(head.length + p.initPayload.length);
+  out.set(head, 0);
+  out.set(p.initPayload, head.length);
+  return out;
+}
+
+export function decodeInitPayload(payload: Uint8Array): InitPayload | null {
+  const id = readLenPrefixed(payload, 0);
+  if (id === null) return null;
+  return { vignetteId: textDecoder.decode(id.bytes), initPayload: payload.slice(id.next) };
+}
+
+// ---------------------------------------------------------------------------
+// Join (peer → host): vignetteId string, optional resumeToken bytes.
+// ---------------------------------------------------------------------------
+
+export interface JoinPayload {
+  vignetteId: string;
+  resumeToken?: Uint8Array;
+}
+
+export function encodeJoinPayload(p: JoinPayload): Uint8Array {
+  const parts: number[] = [];
+  writeLenPrefixed(parts, textEncoder.encode(p.vignetteId));
+  writeLenPrefixed(parts, p.resumeToken ?? new Uint8Array(0));
+  return Uint8Array.from(parts);
+}
+
+export function decodeJoinPayload(payload: Uint8Array): JoinPayload | null {
+  const id = readLenPrefixed(payload, 0);
+  if (id === null) return null;
+  const token = readLenPrefixed(payload, id.next);
+  if (token === null) return null;
+  const result: JoinPayload = { vignetteId: textDecoder.decode(id.bytes) };
+  if (token.bytes.length > 0) result.resumeToken = token.bytes;
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Ready (host → peer): resolved id, version, assigned clientId, fixedStepUs.
+// ---------------------------------------------------------------------------
 
 export interface ReadyPayload {
-  ready: boolean;
-  vignetteType: VignetteType;
+  vignetteId: string;
+  version: string;
+  clientId: number;
+  fixedStepUs: number;
 }
 
-export interface ErrorPayload {
-  message: string;
-  code?: string;
+export function encodeReadyPayload(p: ReadyPayload): Uint8Array {
+  const parts: number[] = [];
+  writeLenPrefixed(parts, textEncoder.encode(p.vignetteId));
+  writeLenPrefixed(parts, textEncoder.encode(p.version));
+  const head = Uint8Array.from(parts);
+  const out = new Uint8Array(head.length + 6);
+  out.set(head, 0);
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  view.setUint16(head.length, p.clientId >>> 0, true);
+  view.setUint32(head.length + 2, p.fixedStepUs >>> 0, true);
+  return out;
 }
+
+export function decodeReadyPayload(payload: Uint8Array): ReadyPayload | null {
+  const id = readLenPrefixed(payload, 0);
+  if (id === null) return null;
+  const ver = readLenPrefixed(payload, id.next);
+  if (ver === null) return null;
+  if (ver.next + 6 > payload.length) return null;
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return {
+    vignetteId: textDecoder.decode(id.bytes),
+    version: textDecoder.decode(ver.bytes),
+    clientId: view.getUint16(ver.next, true),
+    fixedStepUs: view.getUint32(ver.next + 2, true),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Error (host → peer): code u16, message string.
+// ---------------------------------------------------------------------------
+
+export interface ErrorPayload {
+  code: ErrorCode;
+  message: string;
+}
+
+export function encodeErrorPayload(p: ErrorPayload): Uint8Array {
+  const msg = textEncoder.encode(p.message);
+  const out = new Uint8Array(2 + 4 + msg.length);
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  view.setUint16(0, p.code >>> 0, true);
+  view.setUint32(2, msg.length, true);
+  out.set(msg, 6);
+  return out;
+}
+
+export function decodeErrorPayload(payload: Uint8Array): ErrorPayload | null {
+  if (payload.length < 6) return null;
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const code = view.getUint16(0, true);
+  const msgLen = view.getUint32(2, true);
+  if (6 + msgLen !== payload.length) return null;
+  return { code, message: textDecoder.decode(payload.slice(6)) };
+}
+
+// ---------------------------------------------------------------------------
+// Ping / Pong: sequence u32, sentAtMs f64 (unchanged from v1).
+// ---------------------------------------------------------------------------
 
 export interface PingPayload {
   sequence: number;
   sentAtMs: number;
 }
 
-export interface InitPayload {
-  vignetteType: VignetteType;
-  vignetteUrl: string;
-  initPayload: Uint8Array;
-}
+const PING_SIZE = 12;
 
-function vignetteTypeToByte(type: VignetteType): number {
-  return type === 'js' ? VIGNETTE_TYPE_JS : VIGNETTE_TYPE_WASM;
-}
-
-function byteToVignetteType(byte: number): VignetteType | null {
-  if (byte === VIGNETTE_TYPE_JS) return 'js';
-  if (byte === VIGNETTE_TYPE_WASM) return 'wasm';
-  return null;
-}
-
-function encodeLengthPrefixedString(str: string): Uint8Array {
-  const bytes = textEncoder.encode(str);
-  const result = new Uint8Array(4 + bytes.length);
-  const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
-  view.setUint32(0, bytes.length, true);
-  result.set(bytes, 4);
-  return result;
-}
-
-function decodeLengthPrefixedString(
-  payload: Uint8Array,
-  offset: number,
-): { str: string; nextOffset: number } | null {
-  if (payload.length < offset + 4) {
-    return null;
-  }
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  const length = view.getUint32(offset, true);
-  if (payload.length < offset + 4 + length) {
-    return null;
-  }
-  const bytes = payload.slice(offset + 4, offset + 4 + length);
-  return { str: textDecoder.decode(bytes), nextOffset: offset + 4 + length };
-}
-
-// Ready payload binary format:
-// byte 0: ready flag (0 or 1)
-// byte 1: vignette type (0 = js, 1 = wasm)
-
-export function encodeReadyPayload(payload: ReadyPayload): Uint8Array {
-  const bytes = new Uint8Array(READY_PAYLOAD_SIZE);
-  bytes[0] = payload.ready ? 1 : 0;
-  bytes[1] = vignetteTypeToByte(payload.vignetteType);
-  return bytes;
-}
-
-export function decodeReadyPayload(payload: Uint8Array): ReadyPayload | null {
-  if (payload.length !== READY_PAYLOAD_SIZE) {
-    return null;
-  }
-
-  const ready = payload[0] === 1;
-  const vignetteType = byteToVignetteType(payload[1]);
-
-  if (vignetteType === null) {
-    return null;
-  }
-
-  return { ready, vignetteType };
-}
-
-// Error payload binary format:
-// bytes 0-3: message length (u32 LE)
-// bytes 4..(4+messageLen-1): message UTF-8 bytes
-// byte (4+messageLen): hasCode flag (u8: 0 or 1)
-// if hasCode:
-//   bytes (5+messageLen)..(5+messageLen+3): code length (u32 LE)
-//   bytes (9+messageLen)..: code UTF-8 bytes
-
-export function encodeErrorPayload(payload: ErrorPayload): Uint8Array {
-  const messageBytes = encodeLengthPrefixedString(payload.message);
-
-  if (payload.code === undefined) {
-    const result = new Uint8Array(messageBytes.length + 1);
-    result.set(messageBytes, 0);
-    result[messageBytes.length] = 0; // hasCode = false
-    return result;
-  }
-
-  const codeBytes = encodeLengthPrefixedString(payload.code);
-  const result = new Uint8Array(messageBytes.length + 1 + codeBytes.length);
-  result.set(messageBytes, 0);
-  result[messageBytes.length] = 1; // hasCode = true
-  result.set(codeBytes, messageBytes.length + 1);
-  return result;
-}
-
-export function decodeErrorPayload(payload: Uint8Array): ErrorPayload | null {
-  const messageResult = decodeLengthPrefixedString(payload, 0);
-  if (messageResult === null) {
-    return null;
-  }
-
-  const { str: message, nextOffset } = messageResult;
-
-  if (payload.length < nextOffset + 1) {
-    return null;
-  }
-
-  const hasCode = payload[nextOffset] === 1;
-  if (!hasCode) {
-    return { message };
-  }
-
-  const codeResult = decodeLengthPrefixedString(payload, nextOffset + 1);
-  if (codeResult === null) {
-    return null;
-  }
-
-  return { message, code: codeResult.str };
-}
-
-// Ping payload binary format (unchanged):
-// bytes 0-3: sequence (u32 LE)
-// bytes 4-11: sentAtMs (f64 LE)
-
-export function encodePingPayload(payload: PingPayload): Uint8Array {
-  const bytes = new Uint8Array(PING_PAYLOAD_SIZE);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  view.setUint32(0, payload.sequence >>> 0, true);
-  view.setFloat64(4, payload.sentAtMs, true);
-  return bytes;
+export function encodePingPayload(p: PingPayload): Uint8Array {
+  const out = new Uint8Array(PING_SIZE);
+  const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  view.setUint32(0, p.sequence >>> 0, true);
+  view.setFloat64(4, p.sentAtMs, true);
+  return out;
 }
 
 export function decodePingPayload(payload: Uint8Array): PingPayload | null {
-  if (payload.length !== PING_PAYLOAD_SIZE) {
-    return null;
-  }
-
+  if (payload.length !== PING_SIZE) return null;
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  return {
-    sequence: view.getUint32(0, true),
-    sentAtMs: view.getFloat64(4, true),
-  };
-}
-
-// Init payload binary format (variable length):
-// byte 0: vignetteType (0 = js, 1 = wasm)
-// bytes 1-4: vignetteUrl length (u32 LE)
-// bytes 5..(5+vignetteUrlLen-1): vignetteUrl UTF-8 bytes
-// bytes (5+vignetteUrlLen)..(5+vignetteUrlLen+3): initPayloadLen (u32 LE)
-// bytes (9+vignetteUrlLen)..: initPayload bytes
-
-export function encodeInitPayload(payload: InitPayload): Uint8Array {
-  const vignetteUrlBytes = textEncoder.encode(payload.vignetteUrl);
-  const headerSize = 1 + 4 + vignetteUrlBytes.length + 4;
-  const result = new Uint8Array(headerSize + payload.initPayload.length);
-
-  result[0] = vignetteTypeToByte(payload.vignetteType);
-
-  const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
-  view.setUint32(1, vignetteUrlBytes.length, true);
-  result.set(vignetteUrlBytes, 5);
-  view.setUint32(5 + vignetteUrlBytes.length, payload.initPayload.length, true);
-  result.set(payload.initPayload, 9 + vignetteUrlBytes.length);
-
-  return result;
-}
-
-export function decodeInitPayload(payload: Uint8Array): InitPayload | null {
-  if (payload.length < 9) {
-    return null;
-  }
-
-  const vignetteType = byteToVignetteType(payload[0]);
-  if (vignetteType === null) {
-    return null;
-  }
-
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  const vignetteUrlLen = view.getUint32(1, true);
-
-  if (payload.length < 9 + vignetteUrlLen) {
-    return null;
-  }
-
-  const vignetteUrlBytes = payload.slice(5, 5 + vignetteUrlLen);
-  const vignetteUrl = textDecoder.decode(vignetteUrlBytes);
-
-  const initPayloadLen = view.getUint32(5 + vignetteUrlLen, true);
-
-  if (payload.length !== 9 + vignetteUrlLen + initPayloadLen) {
-    return null;
-  }
-
-  const initPayload = payload.slice(9 + vignetteUrlLen);
-
-  return { vignetteType, vignetteUrl, initPayload };
+  return { sequence: view.getUint32(0, true), sentAtMs: view.getFloat64(4, true) };
 }

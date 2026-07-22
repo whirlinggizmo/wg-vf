@@ -1,46 +1,48 @@
-import type { Vignette } from './Vignette.js';
+// Optional convenience base for TS vignettes (Vignette ABI v2). Handles the
+// targeted outbox queue so subclasses just call `emit`/`broadcast`. Lifecycle
+// ops default to no-ops; override what you need. The host never requires this
+// base — any object satisfying Vignette works.
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+import {
+  PeerLeftReason,
+  type FrameView,
+  type OutboxEntry,
+  type Vignette,
+} from './Vignette.js';
 
 export abstract class BaseVignette implements Vignette {
-  private readonly outbox: Uint8Array[] = [];
+  private readonly outbox: OutboxEntry[] = [];
 
-  abstract init(initPayload: Uint8Array): Promise<void>;
-  abstract tick(dtUs: number, frameId: number): Promise<void>;
-  abstract fixedTick(stepUs: number, stepIndex: number): Promise<void>;
-  abstract handleMessage(payload: Uint8Array): Promise<void>;
-  abstract shutdown(): Promise<void>;
+  init(_initPayload: Uint8Array): void | Promise<void> {}
+  tick(_dtUs: number, _frameId: number): void | Promise<void> {}
+  fixedTick(_stepUs: number, _stepIndex: number): void | Promise<void> {}
+  handleMessage(_senderId: number, _payload: Uint8Array): void | Promise<void> {}
+  peerJoined(_clientId: number): void | Promise<void> {}
+  peerLeft(_clientId: number, _reason: PeerLeftReason): void | Promise<void> {}
+  shutdown(): void | Promise<void> {}
 
   outboxHasMessages(): boolean {
     return this.outbox.length > 0;
   }
 
-  outboxPop(): Uint8Array {
-    if (this.outbox.length === 0) {
-      console.warn(`[${this.constructor.name}] outboxPop called with empty outbox`);
-      return new Uint8Array();
+  outboxPop(): OutboxEntry {
+    const entry = this.outbox.shift();
+    if (!entry) {
+      throw new Error('outboxPop called with empty outbox');
     }
-    return this.outbox.shift() as Uint8Array;
+    return entry;
   }
 
-  protected pushOutboxBytes(payload: Uint8Array): void {
-    this.outbox.push(payload);
+  /** Queue a unicast to `targetId` (nonzero) or a broadcast (`targetId = 0`). */
+  protected emit(targetId: number, payload: Uint8Array): void {
+    this.outbox.push({ targetId: targetId >>> 0, payload });
   }
 
-  protected pushOutboxJson(payload: unknown): void {
-    this.outbox.push(encoder.encode(JSON.stringify(payload)));
+  /** Queue a broadcast to every attached peer. */
+  protected broadcast(payload: Uint8Array): void {
+    this.emit(0, payload);
   }
 
-  protected parseJson<T>(bytes: Uint8Array): T | null {
-    try {
-      return JSON.parse(decoder.decode(bytes)) as T;
-    } catch {
-      return null;
-    }
-  }
-
-  protected clearOutbox(): void {
-    this.outbox.length = 0;
-  }
+  // Subclasses that publish frames override this; default: no frame.
+  currentFrame?(): FrameView | null;
 }

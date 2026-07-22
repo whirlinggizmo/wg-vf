@@ -1,54 +1,53 @@
-import { createWasmInstance, type WasmVignetteInstance } from './WasmVignette.js';
+// Vignette ABI v2 — the TypeScript binding of the canonical operation set
+// (docs/architecture-part1.md §2.1). Parallel to the v1 `Vignette` interface
+// until the hosts migrate. Every binding (TS, WASM, C) is a mechanical
+// rendering of the same table; this one adds no semantics of its own.
+//
+// Operations may be sync or async; the host invokes them strictly serially,
+// never concurrently or reentrantly (Part I §2.2), awaiting each in turn.
 
-export type VignetteType = 'js' | 'wasm';
+/** Reason a peer left, delivered to `peerLeft` (Part I §2.1). */
+export enum PeerLeftReason {
+  Left = 0,
+  Fault = 1,
+  TimedOut = 2,
+}
 
-export function isVignetteType(value: unknown): value is VignetteType {
-  return value === 'js' || value === 'wasm';
+/** One outbox entry. `targetId = 0` broadcasts to all attached peers (§1.3). */
+export interface OutboxEntry {
+  targetId: number;
+  payload: Uint8Array;
+}
+
+/**
+ * The current publishable frame (Part I §1.4). `seq` is the vignette-owned
+ * monotonic `frameSeq`; the host stamps `sourceTick` from the step it publishes
+ * after. Body is opaque application bytes.
+ */
+export interface FrameView {
+  seq: number;
+  body: Uint8Array;
 }
 
 export interface Vignette {
-  init(initPayload: Uint8Array): Promise<void>;
-  tick(dtUs: number, frameId: number): Promise<void>;
-  fixedTick(stepUs: number, stepIndex: number): Promise<void>;
-  handleMessage(payload: Uint8Array): Promise<void>;
-  shutdown(): Promise<void>;
+  init(initPayload: Uint8Array): void | Promise<void>;
+  tick(dtUs: number, frameId: number): void | Promise<void>;
+  fixedTick(stepUs: number, stepIndex: number): void | Promise<void>;
+  /** `senderId` is host-stamped; peers cannot forge it (Part I §1.3). */
+  handleMessage(senderId: number, payload: Uint8Array): void | Promise<void>;
+  /** Delivered before this peer's first `handleMessage` (Part I §2.2). */
+  peerJoined(clientId: number): void | Promise<void>;
+  /** No `handleMessage` for this id is delivered after this (Part I §2.2). */
+  peerLeft(clientId: number, reason: PeerLeftReason): void | Promise<void>;
+  shutdown(): void | Promise<void>;
+
   outboxHasMessages(): boolean;
-  outboxPop(): Uint8Array;
-}
+  outboxPop(): OutboxEntry;
 
-export async function instantiateVignetteFromModuleUrl(
-  vignetteType: VignetteType,
-  vignetteUrl: string,
-): Promise<Vignette> {
-  if (vignetteType === 'wasm') {
-    if (typeof WorkerGlobalScope === 'undefined' && typeof self !== 'undefined') {
-      (globalThis as Record<string, unknown>).WorkerGlobalScope = class WorkerGlobalScopeShim {};
-    }
-
-    const moduleFactory = (await import(/* @vite-ignore */ vignetteUrl)).default as (opts?: {
-      locateFile?: (path: string) => string;
-    }) => Promise<WasmVignetteInstance>;
-
-    if (typeof moduleFactory !== 'function') {
-      throw new Error('WASM vignette module must default-export an Emscripten module factory');
-    }
-
-    const wasmDirUrl = new URL('./', vignetteUrl).href;
-    const wasmModule = await moduleFactory({
-      locateFile: (path: string) => new URL(path, wasmDirUrl).href,
-    });
-    return createWasmInstance(wasmModule);
-  }
-
-  const mod = await import(/* @vite-ignore */ vignetteUrl);
-
-  if (typeof mod.createVignette === 'function') {
-    return await mod.createVignette();
-  }
-
-  if (typeof mod.default === 'function') {
-    return new mod.default();
-  }
-
-  throw new Error('Vignette module must export createVignette() or a default class');
+  /**
+   * The current frame to publish, or null if the vignette has none. The host
+   * calls this after a fixedTick burst that ran ≥1 step; a null return, or a
+   * burst that ran zero steps, publishes nothing (Part I §1.4 silence rule).
+   */
+  currentFrame?(): FrameView | null;
 }
