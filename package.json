@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "Whirling Gizmo <rknopf@whirlinggizmo.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/whirlinggizmo/wg-vf.git"
+  },
+  "homepage": "https://github.com/whirlinggizmo/wg-vf#readme",
+  "bugs": {
+    "url": "https://github.com/whirlinggizmo/wg-vf/issues"
+  },
   "keywords": [
     "vignette",
     "simulation",
