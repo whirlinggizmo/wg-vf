@@ -1,11 +1,13 @@
 // The reference v2 host core (Part I §1–§3, Part II §2/§5/§7). Drives one
 // provisioned vignette over BytePeer transports: mints identities, delivers the
 // canonical ABI ops strictly serially, drains the targeted outbox after every
-// op, publishes frames, and contains errors (peer-fault vs sim-fatal).
+// op, publishes frames, contains errors (peer-fault vs sim-fatal), and owns the
+// session lifetime (reconnect grace + empty-session teardown).
 //
-// This is the unit `runHostConformance` drives. It handles Provision/Join/Leave
-// and Ping; reconnect grace and empty/lifetime timers are Phase 4 (docs/TODO).
-// The worker and WebSocket adapters (Phase 7) wrap this by supplying BytePeers.
+// This is the unit `runHostConformance` drives. The worker and WebSocket
+// adapters (Phase 7) wrap it by supplying BytePeers. Lifetime timers are
+// evaluated on pump() (and on the explicit poll()) against the injected clock,
+// so they fire deterministically under VirtualClock with no wall-clock time.
 
 import { Clock } from './Clock.js';
 import { FixedStepEngine } from './FixedStepEngine.js';
@@ -47,17 +49,26 @@ export interface HostVignetteEntry {
   maxSubsteps: number;
   maxPeers: number;
   maxPayloadBytes?: number;
+  /** Reconnect grace window in ms. 0 (default) = abrupt drop evicts immediately. */
+  reconnectGraceMs?: number;
+  /** Empty-session grace in ms. 0 (default) = teardown on last detach. */
+  emptyGraceMs?: number;
   create(): Vignette | Promise<Vignette>;
 }
 
 export interface PeerConnection {
-  /** Detach this transport from the host. */
+  /** Detach this transport from the host (transport-drop semantics). */
   disconnect(): void;
 }
 
 class Conn {
   clientId: number | null = null;
   constructor(readonly pipe: BytePeer) {}
+}
+
+interface PendingReconnect {
+  startUs: number;
+  token: Uint8Array;
 }
 
 class OversizedEmissionError extends Error {
@@ -67,16 +78,29 @@ class OversizedEmissionError extends Error {
   }
 }
 
+const TOKEN_BYTES = 16;
+
 export class VignetteHost {
   private readonly clock: Clock;
   private readonly registry = new PeerRegistry();
   private readonly conns = new Set<Conn>();
   private readonly maxPayloadBytes: number;
+  private readonly reconnectGraceUs: number;
+  private readonly emptyGraceUs: number;
 
   private state: HostState = 'IDLE';
   private vignette: Vignette | null = null;
   private engine: FixedStepEngine | null = null;
   private loop: HostLoop | null = null;
+
+  // Reconnect-pending peers keep their id live (no peerLeft) until grace expiry.
+  private readonly pending = new Map<number, PendingReconnect>();
+  private readonly tokenById = new Map<number, Uint8Array>();
+  private tokenCounter = 0;
+
+  // When the session is empty (no attached peers, no pending), the moment it
+  // became empty; null otherwise. Expiry → host-initiated shutdown.
+  private emptyStartUs: number | null = null;
 
   // Serializes every vignette op so the ABI's strict, non-reentrant discipline
   // (Part I §2.2) holds for free: each queued unit runs to completion in order.
@@ -88,6 +112,8 @@ export class VignetteHost {
   ) {
     this.clock = clock;
     this.maxPayloadBytes = entry.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
+    this.reconnectGraceUs = (entry.reconnectGraceMs ?? 0) * 1000;
+    this.emptyGraceUs = (entry.emptyGraceMs ?? 0) * 1000;
   }
 
   getState(): HostState {
@@ -115,16 +141,25 @@ export class VignetteHost {
         off();
         this.conns.delete(conn);
         if (conn.clientId !== null) {
-          // No reconnect grace yet (Phase 4): abrupt drop evicts as TimedOut.
-          void this.run(() => this.evict(conn, PeerLeftReason.TimedOut));
+          void this.run(() => this.handleTransportDrop(conn));
         }
       },
     };
   }
 
-  /** Enqueue one host loop iteration. Resolves when it completes. */
+  /** Enqueue one host loop iteration, after evaluating lifetime timers. */
   pump(): Promise<void> {
-    return this.run(() => this.loop?.pump() ?? Promise.resolve());
+    return this.run(async () => {
+      await this.processTimers(this.clock.nowUs());
+      if (this.state === 'READY') {
+        await this.loop?.pump();
+      }
+    });
+  }
+
+  /** Evaluate lifetime timers without stepping the sim (e.g. an idle session). */
+  poll(): Promise<void> {
+    return this.run(() => this.processTimers(this.clock.nowUs()));
   }
 
   // --- op serialization ----------------------------------------------------
@@ -237,6 +272,13 @@ export class VignetteHost {
       this.sendError(conn.pipe, ErrorCode.UnknownVignette, join.vignetteId);
       return;
     }
+
+    // A valid resumeToken rebinds the same id without a peerLeft/peerJoined
+    // cycle. A stale/forged token falls through to an ordinary Join (Part I §3.3).
+    if (join.resumeToken && this.tryReconnect(conn, join.resumeToken)) {
+      return;
+    }
+
     if (this.registry.attachedCount >= this.entry.maxPeers) {
       this.sendError(conn.pipe, ErrorCode.SessionFull, 'session full');
       return;
@@ -249,24 +291,34 @@ export class VignetteHost {
     const id = this.registry.mint();
     conn.clientId = id;
     this.registry.attach(id, conn.pipe);
+    const token = this.newToken();
+    this.tokenById.set(id, token);
+    this.updateEmptyTimer();
 
     const ok = await this.invokeSimOp(() => this.vignette!.peerJoined(id));
     if (!ok) {
       return; // peerJoined threw → sim-fatal already handled
     }
 
-    conn.pipe.send(
-      encodeSystemEnvelope(
-        SystemType.Ready,
-        encodeReadyPayload({
-          vignetteId: this.entry.vignetteId,
-          version: this.entry.version,
-          clientId: id,
-          fixedStepUs: this.entry.fixedStepUs,
-        }),
-        id,
-      ),
-    );
+    this.sendReady(conn.pipe, id, token);
+  }
+
+  /** Rebind a reconnecting transport to its live id, if the token matches. */
+  private tryReconnect(conn: Conn, token: Uint8Array): boolean {
+    for (const [id, rec] of this.pending) {
+      if (rec.token.length > 0 && bytesEqual(rec.token, token)) {
+        this.pending.delete(id);
+        conn.clientId = id;
+        const fresh = this.newToken();
+        this.tokenById.set(id, fresh);
+        this.registry.attach(id, conn.pipe);
+        this.updateEmptyTimer();
+        // Same id, no peerJoined — the sim never saw the peer leave.
+        this.sendReady(conn.pipe, id, fresh);
+        return true;
+      }
+    }
+    return false;
   }
 
   private async handleLeave(conn: Conn): Promise<void> {
@@ -276,15 +328,102 @@ export class VignetteHost {
     await this.evict(conn, PeerLeftReason.Left);
   }
 
-  /** Detach + retire + peerLeft (drained). Shared by Leave and eviction. */
+  /** Transport dropped: enter reconnect grace, or evict if grace is disabled. */
+  private async handleTransportDrop(conn: Conn): Promise<void> {
+    if (conn.clientId === null || this.state !== 'READY') {
+      return;
+    }
+    const id = conn.clientId;
+    conn.clientId = null;
+
+    if (this.reconnectGraceUs === 0) {
+      await this.retirePeer(id, PeerLeftReason.TimedOut);
+      return;
+    }
+    // Keep the id live (no peerLeft); detach routing so gap traffic is dropped.
+    this.registry.detach(id);
+    this.pending.set(id, {
+      startUs: this.clock.nowUs(),
+      token: this.tokenById.get(id) ?? new Uint8Array(0),
+    });
+    this.updateEmptyTimer();
+  }
+
   private async evict(conn: Conn, reason: PeerLeftReason): Promise<void> {
     if (conn.clientId === null || this.state !== 'READY') {
       return;
     }
     const id = conn.clientId;
     conn.clientId = null;
+    await this.retirePeer(id, reason);
+  }
+
+  /** Detach + retire an id and deliver peerLeft (drained). */
+  private async retirePeer(id: number, reason: PeerLeftReason): Promise<void> {
     this.registry.detach(id);
+    this.tokenById.delete(id);
+    this.pending.delete(id);
     await this.invokeSimOp(() => this.vignette!.peerLeft(id, reason));
+    this.updateEmptyTimer();
+  }
+
+  // --- lifetime timers -----------------------------------------------------
+
+  private async processTimers(now: number): Promise<void> {
+    if (this.state !== 'READY') {
+      return;
+    }
+    // Reconnect grace expiries → peerLeft(TimedOut).
+    for (const [id, rec] of [...this.pending]) {
+      if (((now - rec.startUs) >>> 0) >= this.reconnectGraceUs) {
+        this.pending.delete(id);
+        await this.retirePeer(id, PeerLeftReason.TimedOut);
+      }
+    }
+    // Empty-session grace expiry → host-initiated shutdown.
+    if (
+      this.state === 'READY' &&
+      this.emptyStartUs !== null &&
+      ((now - this.emptyStartUs) >>> 0) >= this.emptyGraceUs
+    ) {
+      this.hostShutdown();
+    }
+  }
+
+  private updateEmptyTimer(): void {
+    if (this.state !== 'READY') {
+      this.emptyStartUs = null;
+      return;
+    }
+    const empty = this.registry.attachedCount === 0 && this.pending.size === 0;
+    if (!empty) {
+      this.emptyStartUs = null;
+      return;
+    }
+    if (this.emptyGraceUs === 0) {
+      this.hostShutdown();
+      return;
+    }
+    if (this.emptyStartUs === null) {
+      this.emptyStartUs = this.clock.nowUs();
+    }
+  }
+
+  /** Host-initiated teardown: broadcast Shutdown, run vignette shutdown (§3.5). */
+  private hostShutdown(): void {
+    if (this.state !== 'READY') {
+      return;
+    }
+    this.state = 'SHUTTING_DOWN';
+    this.loop?.stop();
+    this.emptyStartUs = null;
+    this.registry.route(0, encodeSystemEnvelope(SystemType.Shutdown));
+    try {
+      void this.vignette?.shutdown();
+    } catch {
+      /* ignore */
+    }
+    this.state = 'CLOSED';
   }
 
   // --- App delivery & containment -----------------------------------------
@@ -379,11 +518,50 @@ export class VignetteHost {
     this.registry.route(0, encodeFrameEnvelope(frame.body, frame.seq, sourceTick, 0));
   }
 
+  private sendReady(pipe: BytePeer, clientId: number, resumeToken: Uint8Array): void {
+    pipe.send(
+      encodeSystemEnvelope(
+        SystemType.Ready,
+        encodeReadyPayload({
+          vignetteId: this.entry.vignetteId,
+          version: this.entry.version,
+          clientId,
+          fixedStepUs: this.entry.fixedStepUs,
+          resumeToken,
+        }),
+        clientId,
+      ),
+    );
+  }
+
   private sendError(pipe: BytePeer, code: ErrorCode, message: string): void {
     pipe.send(
       encodeSystemEnvelope(SystemType.Error, encodeErrorPayload({ code, message })),
     );
   }
+
+  private newToken(): Uint8Array {
+    const token = new Uint8Array(TOKEN_BYTES);
+    const g = globalThis.crypto;
+    if (g && typeof g.getRandomValues === 'function') {
+      g.getRandomValues(token);
+      return token;
+    }
+    // Non-crypto fallback (environments without WebCrypto); unique per session.
+    for (let i = 0; i < TOKEN_BYTES; i++) {
+      token[i] = (this.tokenCounter + i * 31) & 0xff;
+    }
+    this.tokenCounter = (this.tokenCounter + 1) >>> 0;
+    return token;
+  }
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 function errMessage(err: unknown): string {

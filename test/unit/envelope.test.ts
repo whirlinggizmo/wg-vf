@@ -183,9 +183,19 @@ describe('ENV-17/18 frameSeq modular newer-than', () => {
 });
 
 describe('§1.5 system payloads round-trip binary', () => {
-  test('Ready carries resolved id, version, clientId, fixedStepUs', () => {
-    const p = { vignetteId: 'restEasy', version: '1.2.0', clientId: 7, fixedStepUs: 16666 };
+  test('Ready carries resolved id, version, clientId, fixedStepUs, resumeToken', () => {
+    const p = {
+      vignetteId: 'restEasy',
+      version: '1.2.0',
+      clientId: 7,
+      fixedStepUs: 16666,
+      resumeToken: new Uint8Array([1, 2, 3, 4]),
+    };
     expect(decodeReadyPayload(encodeReadyPayload(p))).toEqual(p);
+
+    // Empty token round-trips too (reconnect disabled).
+    const noToken = { ...p, resumeToken: new Uint8Array(0) };
+    expect(decodeReadyPayload(encodeReadyPayload(noToken))).toEqual(noToken);
   });
 
   test('Error carries code and message', () => {

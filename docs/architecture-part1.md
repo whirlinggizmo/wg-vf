@@ -85,7 +85,7 @@ Changes from v1: `messageKind` splits into `channel`; `clientId` and `flags` are
 |---|---|---|---|
 | `Init` | peer → host | binary (§3.2) | Provision request. Only valid from the founding peer path; see §3.3. |
 | `Join` | peer → host | binary: `vignetteId` string, optional `resumeToken` | Attach to an already-provisioned vignette. **New in v2.** |
-| `Ready` | host → peer | binary: resolved `vignetteId`, `version`, assigned `clientId`, `fixedStepUs` | Per-peer. Echoing the resolved id lets the peer verify it got what it asked for. |
+| `Ready` | host → peer | binary: resolved `vignetteId`, `version`, assigned `clientId`, `fixedStepUs`, `resumeToken` | Per-peer. Echoing the resolved id lets the peer verify it got what it asked for. `resumeToken` is the bearer secret for Reconnect (§3.3); empty when reconnect is disabled (`reconnectGraceMs: 0`). |
 | `Error` | host → peer | binary: `code: u16`, `message` string | Codes: `Generic=0`, `UnsupportedVersion=1`, `UnknownVignette=2`, `SessionFull=3`, `NotProvisioned=4`, `PeerFault=5`. Unicast unless sim-fatal. |
 | `Shutdown` | either | empty | From host: sim is ending (broadcast). From peer: **request** to leave (equivalent to `Leave`); a peer-originated Shutdown MUST NOT terminate the vignette. Trust boundary — see §3.6. |
 | `Leave` | peer → host | empty | Graceful detach. **New in v2.** |

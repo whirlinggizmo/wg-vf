@@ -91,6 +91,8 @@ export interface ReadyPayload {
   version: string;
   clientId: number;
   fixedStepUs: number;
+  /** Bearer token for reconnect (Part I §3.3); empty if reconnect is disabled. */
+  resumeToken: Uint8Array;
 }
 
 export function encodeReadyPayload(p: ReadyPayload): Uint8Array {
@@ -98,11 +100,14 @@ export function encodeReadyPayload(p: ReadyPayload): Uint8Array {
   writeLenPrefixed(parts, textEncoder.encode(p.vignetteId));
   writeLenPrefixed(parts, textEncoder.encode(p.version));
   const head = Uint8Array.from(parts);
-  const out = new Uint8Array(head.length + 6);
+  const token = p.resumeToken;
+  const out = new Uint8Array(head.length + 10 + token.length);
   out.set(head, 0);
   const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
   view.setUint16(head.length, p.clientId >>> 0, true);
   view.setUint32(head.length + 2, p.fixedStepUs >>> 0, true);
+  view.setUint32(head.length + 6, token.length, true);
+  out.set(token, head.length + 10);
   return out;
 }
 
@@ -111,13 +116,17 @@ export function decodeReadyPayload(payload: Uint8Array): ReadyPayload | null {
   if (id === null) return null;
   const ver = readLenPrefixed(payload, id.next);
   if (ver === null) return null;
-  if (ver.next + 6 > payload.length) return null;
+  const off = ver.next;
+  if (off + 10 > payload.length) return null;
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const tokenLen = view.getUint32(off + 6, true);
+  if (off + 10 + tokenLen !== payload.length) return null;
   return {
     vignetteId: textDecoder.decode(id.bytes),
     version: textDecoder.decode(ver.bytes),
-    clientId: view.getUint16(ver.next, true),
-    fixedStepUs: view.getUint32(ver.next + 2, true),
+    clientId: view.getUint16(off, true),
+    fixedStepUs: view.getUint32(off + 2, true),
+    resumeToken: payload.slice(off + 10),
   };
 }
 

@@ -52,10 +52,11 @@ function makePeer(end: BytePeer) {
     received,
     init: (id: string, payload = new Uint8Array()) =>
       end.send(encodeSystemEnvelope(SystemType.Init, encodeInitPayload({ vignetteId: id, initPayload: payload }))),
-    join: (id: string) =>
-      end.send(encodeSystemEnvelope(SystemType.Join, encodeJoinPayload({ vignetteId: id }))),
+    join: (id: string, resumeToken?: Uint8Array) =>
+      end.send(encodeSystemEnvelope(SystemType.Join, encodeJoinPayload({ vignetteId: id, resumeToken }))),
     app: (payload: Uint8Array, forgedClientId = 0) => end.send(encodeAppEnvelope(payload, forgedClientId)),
     leave: () => end.send(encodeSystemEnvelope(SystemType.Leave)),
+    shutdown: () => end.send(encodeSystemEnvelope(SystemType.Shutdown)),
     ping: (sequence: number, sentAtMs: number) =>
       end.send(encodeSystemEnvelope(SystemType.Ping, encodePingPayload({ sequence, sentAtMs }))),
     ready: () => {
@@ -71,13 +72,15 @@ function makePeer(end: BytePeer) {
   };
 }
 
+type TestPeer = ReturnType<typeof makePeer> & { disconnect: () => void };
+
 function setup(create: () => Vignette, over?: Partial<HostVignetteEntry>) {
   const clock = new VirtualClock(0);
   const host = new VignetteHost(entry(create, over), clock);
-  const connect = () => {
+  const connect = (): TestPeer => {
     const { a, b } = createLoopbackPipe();
-    host.connect(a);
-    return makePeer(b);
+    const pc = host.connect(a);
+    return Object.assign(makePeer(b), { disconnect: pc.disconnect });
   };
   return { host, clock, connect };
 }
@@ -89,7 +92,9 @@ describe('SES/ENV provisioning & session', () => {
     p.init('sim');
     await host.whenIdle();
     expect(host.getState()).toBe('READY');
-    expect(p.ready()).toEqual({ vignetteId: 'sim', version: '1.0.0', clientId: 1, fixedStepUs: STEP });
+    const ready = p.ready();
+    expect(ready).toMatchObject({ vignetteId: 'sim', version: '1.0.0', clientId: 1, fixedStepUs: STEP });
+    expect(ready?.resumeToken).toBeInstanceOf(Uint8Array);
   });
 
   test('SES-08: Join mints a unique id ≥1 and Readys; existing peer undisturbed', async () => {
@@ -342,5 +347,246 @@ describe('ABI frame publication', () => {
     const frames = p.frames();
     expect(frames.length).toBe(afterFirst + 1);
     expect(readFrameHeader(frames.at(-1)!.payload)!.frameSeq).toBe(2);
+  });
+});
+
+describe('SES trust & idempotence', () => {
+  test('SES-02: unknown id → UnknownVignette, host stays IDLE, later valid Provision succeeds', async () => {
+    const { host, connect } = setup(() => new EchoVignette());
+    const p1 = connect();
+    p1.init('nope');
+    await host.whenIdle();
+    expect(p1.errors()[0]?.code).toBe(ErrorCode.UnknownVignette);
+    expect(host.getState()).toBe('IDLE');
+
+    const p2 = connect();
+    p2.init('sim');
+    await host.whenIdle();
+    expect(host.getState()).toBe('READY');
+    expect(p2.ready()?.clientId).toBe(1);
+  });
+
+  test('SES-07/21: a second Provision on a READY session cannot re-provision; sim undisturbed', async () => {
+    const counter = new CounterVignette();
+    const { host, clock, connect } = setup(() => counter);
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+
+    clock.advance(STEP);
+    await host.pump();
+    const before = counter.value;
+
+    // Hostile re-Init naming a different vignette must not touch the session.
+    const p2 = connect();
+    p2.init('other');
+    await host.whenIdle();
+    expect(p2.errors().length).toBeGreaterThan(0);
+    expect(host.getState()).toBe('READY');
+    expect(counter.value).toBe(before);
+  });
+
+  test('SES-13/ENV-24: peer-originated Shutdown behaves as Leave; session survives', async () => {
+    const counter = new CounterVignette();
+    const { host, connect } = setup(() => counter);
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const p2 = connect();
+    p2.join('sim');
+    await host.whenIdle();
+
+    // p2 sends Shutdown — a leave request for itself only.
+    p2.shutdown();
+    await host.whenIdle();
+    expect(counter.left).toEqual([{ id: 2, reason: PeerLeftReason.Left }]);
+    expect(host.getState()).toBe('READY'); // session survives, p1 still attached
+  });
+});
+
+describe('ENV routing edge cases', () => {
+  test('ENV-13: unicast to an unattached id is silently dropped; sim unaffected', async () => {
+    const { host, connect } = setup(() => new ChaosVignette());
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+
+    // chaos emits to id 0xBEEF, which is not attached.
+    p.app(new Uint8Array([ChaosOp.EmitToInvalidTarget, 1, 2, 3]));
+    await host.whenIdle();
+
+    expect(p.apps()).toHaveLength(0); // nothing delivered anywhere
+    expect(p.errors()).toHaveLength(0); // not an error
+    expect(host.getState()).toBe('READY');
+  });
+
+  test('ENV-16: peer-bound messages arrive at a peer in emission order', async () => {
+    const { host, connect } = setup(() => new EchoVignette());
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    for (let i = 1; i <= 4; i++) p.app(new Uint8Array([i]));
+    await host.whenIdle();
+    // The per-peer unicast echoes to p (clientId 1) preserve emission order.
+    const unicastOrder = p.apps().filter((e) => e.clientId === 1).map((e) => e.payload[0]);
+    expect(unicastOrder).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('SES lifetime', () => {
+  test('SES-17: founding peer disconnect does not shut the session down; sim ticks on', async () => {
+    const counter = new CounterVignette();
+    const { host, clock, connect } = setup(() => counter, { reconnectGraceMs: 0 });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const p2 = connect();
+    p2.join('sim');
+    await host.whenIdle();
+
+    p1.disconnect(); // founding peer's transport drops
+    await host.whenIdle();
+    expect(counter.left).toEqual([{ id: 1, reason: PeerLeftReason.TimedOut }]);
+    expect(host.getState()).toBe('READY');
+
+    clock.advance(STEP);
+    await host.pump();
+    expect(counter.value).toBe(1); // sim still advancing for peer B
+    expect(p2.frames().length).toBeGreaterThan(0);
+  });
+
+  test('SES-19: emptyGraceMs 0 tears down immediately on last detach', async () => {
+    const { host, connect } = setup(() => new CounterVignette(), { emptyGraceMs: 0 });
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    p.leave();
+    await host.whenIdle();
+    expect(host.getState()).toBe('CLOSED');
+  });
+
+  test('SES-18: empty grace expiry tears down; a Join inside the window cancels it', async () => {
+    // Cancel case.
+    {
+      const { host, clock, connect } = setup(() => new CounterVignette(), { emptyGraceMs: 30_000 });
+      const p1 = connect();
+      p1.init('sim');
+      await host.whenIdle();
+      p1.leave();
+      await host.whenIdle(); // empty grace begins at t=0
+
+      clock.advance(10_000_000); // 10s < 30s
+      const p2 = connect();
+      p2.join('sim');
+      await host.whenIdle(); // cancels teardown
+      clock.advance(30_000_000);
+      await host.poll();
+      expect(host.getState()).toBe('READY');
+    }
+    // Expiry case.
+    {
+      const { host, clock, connect } = setup(() => new CounterVignette(), { emptyGraceMs: 30_000 });
+      const p1 = connect();
+      p1.init('sim');
+      await host.whenIdle();
+      p1.leave();
+      await host.whenIdle();
+      clock.advance(30_000_000); // exactly the grace window
+      await host.poll();
+      expect(host.getState()).toBe('CLOSED');
+    }
+  });
+
+  test('SES-20/15: pending reconnect suppresses empty; expiry fires TimedOut then empty grace begins', async () => {
+    const counter = new CounterVignette();
+    const { host, clock, connect } = setup(() => counter, {
+      reconnectGraceMs: 15_000,
+      emptyGraceMs: 30_000,
+    });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+
+    p1.disconnect(); // enters reconnect-pending — NOT empty
+    await host.whenIdle();
+
+    clock.advance(10_000_000); // 10s < reconnect grace
+    await host.poll();
+    expect(host.getState()).toBe('READY');
+    expect(counter.left).toEqual([]); // no peerLeft while pending
+
+    clock.advance(5_000_000); // now 15s total → reconnect grace expired
+    await host.poll();
+    expect(counter.left).toEqual([{ id: 1, reason: PeerLeftReason.TimedOut }]);
+    expect(host.getState()).toBe('READY'); // empty grace only now begins
+
+    clock.advance(30_000_000); // empty grace elapses
+    await host.poll();
+    expect(host.getState()).toBe('CLOSED');
+  });
+});
+
+describe('SES reconnect', () => {
+  test('SES-14: reconnect within grace rebinds the same id with no peerLeft/peerJoined', async () => {
+    const counter = new CounterVignette();
+    const { host, clock, connect } = setup(() => counter, { reconnectGraceMs: 15_000 });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const token = p1.ready()!.resumeToken;
+    expect(counter.joined).toEqual([1]);
+
+    p1.disconnect();
+    await host.whenIdle();
+
+    clock.advance(5_000_000); // within grace
+    const p1b = connect();
+    p1b.join('sim', token);
+    await host.whenIdle();
+
+    expect(p1b.ready()?.clientId).toBe(1); // same id
+    expect(counter.joined).toEqual([1]); // no second peerJoined
+    expect(counter.left).toEqual([]); // no peerLeft — the blip was invisible
+  });
+
+  test('SES-15/16: after grace, a stale token yields a fresh id; a forged token never rebinds', async () => {
+    const counter = new CounterVignette();
+    // emptyGraceMs keeps the session alive after p1 times out so we can observe
+    // the stale-token reconnect resolving to a fresh id.
+    const { host, clock, connect } = setup(() => counter, {
+      reconnectGraceMs: 15_000,
+      emptyGraceMs: 60_000,
+    });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const token = p1.ready()!.resumeToken;
+
+    p1.disconnect();
+    await host.whenIdle();
+    clock.advance(15_000_000); // grace expires
+    await host.poll();
+    expect(counter.left).toEqual([{ id: 1, reason: PeerLeftReason.TimedOut }]);
+
+    // Stale token → ordinary Join with a fresh id.
+    const p1b = connect();
+    p1b.join('sim', token);
+    await host.whenIdle();
+    expect(p1b.ready()?.clientId).toBe(2);
+    expect(counter.joined).toEqual([1, 2]);
+  });
+
+  test('SES-16: a forged token (no matching pending) becomes an ordinary Join', async () => {
+    const counter = new CounterVignette();
+    const { host, connect } = setup(() => counter, { reconnectGraceMs: 15_000 });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+
+    const p2 = connect();
+    p2.join('sim', new Uint8Array([9, 9, 9, 9])); // forged, no pending peer
+    await host.whenIdle();
+    expect(p2.ready()?.clientId).toBe(2);
+    expect(counter.joined).toEqual([1, 2]);
   });
 });

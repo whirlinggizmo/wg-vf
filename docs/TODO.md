@@ -68,11 +68,11 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 - [x] State machine IDLE→READY; Provision (Init) / Join-against-READY / Leave verbs; founding peer admitted on Init (Part I §3.3).
 - [x] Containment: peer-fault (handleMessage throw → `Error(PeerFault)` + evict, sim survives) vs sim-fatal (host-driven op throw → broadcast Error + shutdown); oversized emission = sim-fatal.
 - [x] Frame publish: post-burst snapshot-by-value, silent on zero-step (Part I §1.4).
-- [x] **(gate, partial)** ENV-10/11/12/15/21/22/23, SES-01/08/09/10/11/12, ABI-15/16/17/20/22 green.
-- [ ] **Reconnect**: `resumeToken` in `Ready`; grace re-bind without `peerLeft`/`peerJoined`; gap traffic dropped (Part I §3.3). Abrupt drop currently evicts as `TimedOut` immediately (no grace yet).
-- [ ] **Lifetime**: `reconnectGraceMs` + `emptyGraceMs` timers; host-owned shutdown (Part I §3.5).
-- [ ] Remaining SES: SES-02/07/13..22 (reconnect, lifetime, trust) and ENV-13/16/19/20/24.
-- [ ] Promote the test's inline `makePeer` helper into `runHostConformance` (test plan §6) once reconnect/lifetime land.
+- [x] **Reconnect**: `resumeToken` in `Ready` (envelope + Part I §1.5); grace re-bind without `peerLeft`/`peerJoined`; gap traffic dropped; stale/forged token → ordinary Join; `TimedOut` at expiry (Part I §3.3).
+- [x] **Lifetime**: clock-driven timers evaluated on `pump()`/`poll()` (wrap-safe modular elapsed); `reconnectGraceMs` + `emptyGraceMs`; pending reconnect suppresses empty; host-initiated `Shutdown` broadcast + vignette shutdown (Part I §3.5).
+- [x] **(gate)** ENV-10/11/12/13/15/16/21/22/23/24, SES-01/02/07/08/09/10/11/12/13/14/15/16/17/18/19/20/21, ABI-15/16/17/20/22 green.
+- [ ] Remaining SES/ENV: SES-22 (end-to-end impersonation — ENV-10 covers the mechanism), ENV-19/20 (frame coalescing — transport-side, Phase 7).
+- [ ] Promote the test's inline `makePeer` helper into `runHostConformance` (test plan §6) — the session layer is now complete enough to package.
 
 ## Phase 5 — Manifest resolution (Appendix A #4)
 
