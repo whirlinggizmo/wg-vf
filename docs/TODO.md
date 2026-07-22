@@ -88,12 +88,12 @@ TS binding: `src/vignettes/Vignette.ts` + `BaseVignette.ts`. Reference vignettes
 - [x] Remaining SES/ENV: SES-22 is the ENV-10/22 impersonation case; ENV-13/16/25 host cases; ENV-19/20 frame coalescing (`coalescingPipe` — a stalled reliable stream keeps only the latest frame, App/System never dropped).
 - [x] Packaged `runHostConformance`: `hostConformanceCases(makeHost)` + `HostPeer` in `src/testing/`, exported from `@whirlinggizmo/wg-vf/testing`. `VignetteHost.test.ts` is now a thin driver; any new host gets the 26-case battery from one factory.
 
-## Phase 5 — Manifest resolution (Appendix A #4)
+## Phase 5 — Manifest resolution (Appendix A #4) — DONE
 
-- [ ] `Manifest` type + loader/validator (fail-fast at construction); pure `resolveVignette()` (Part II §4).
-- [ ] Reimplement `resolveInitPayload` as manifest resolution; `vignetteFactory` becomes an in-memory manifest entry.
-- [ ] Gate URL provisioning behind `allowClientModuleUrls` (Part I §3.7).
-- [ ] Hosts (Local + Remote) constructed with a manifest; LocalVignetteHost consumes the same format (SES-06).
+- [x] `Manifest`/`ManifestEntry` types (`src/hosts/Manifest.ts`): two entry forms — code (`{create}`) and module (`{type, module}`). `VignetteHost` takes a manifest and resolves the peer-named id at Provision (Part I §3.1); `VignetteHost.single` sugar for one vignette.
+- [x] Framework-owned module loading (`loadVignetteModule`): wasm → `createWasmInstance(await factory())`; js → `new Class()` / factory. No example writes loading glue anymore.
+- [x] Worker + remote hosts constructed with a manifest; `runWorkerHost(port, manifest)`, `SessionManager({manifestFor})`. Verified live: simple worker + remote server load the vignette module themselves; three worker offers `three-js`/`three-wasm` and the app selects by naming the id.
+- [ ] Gate URL provisioning behind `allowClientModuleUrls` (Part I §3.7) — the module form already loads by URL; the dev-mode client-supplied-URL escape hatch is not yet wired.
 
 ## Phase 6 — Frame publication & error containment (Appendix A #6)
 

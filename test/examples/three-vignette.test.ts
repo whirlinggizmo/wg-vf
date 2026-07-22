@@ -7,7 +7,8 @@ import { describe, expect, test } from 'bun:test';
 
 import ThreeVignette from '../../examples/three/vignette/ts/three-vignette.js';
 import { encodePayload, decodePayload } from '../../examples/codecs/json-codec.js';
-import { VignetteHost, type HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
+import { VignetteHost } from '../../src/hosts/VignetteHost.js';
+import type { ManifestEntry } from '../../src/hosts/Manifest.js';
 import { createWasmInstance } from '../../src/vignettes/WasmVignette.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
@@ -24,9 +25,8 @@ try {
 interface Entity { id: number; color: number; type: string }
 interface Msg { type: string; entity?: Entity; entities?: Entity[] }
 
-function entry(): HostVignetteEntry {
+function entry(): ManifestEntry {
   return {
-    vignetteId: 'three',
     version: '1.0.0',
     fixedStepUs: 16_666,
     maxSubsteps: 4,
@@ -38,7 +38,7 @@ function entry(): HostVignetteEntry {
 describe('three example vignette (v2)', () => {
   test('provision → state, SpawnPlayer → green player, ticks → StateUpdate', async () => {
     const clock = new VirtualClock(0);
-    const host = new VignetteHost(entry(), clock);
+    const host = VignetteHost.single('three', entry(), clock);
     const { a, b } = createLoopbackPipe();
     host.connect(a);
     const peer = new HostPeer(b);
@@ -71,7 +71,8 @@ describe('three example vignette (v2)', () => {
 
   test.skipIf(!threeWasm)('the Nim→WASM three vignette behaves the same (green player on SpawnPlayer)', async () => {
     const clock = new VirtualClock(0);
-    const host = new VignetteHost(
+    const host = VignetteHost.single(
+      'three',
       { ...entry(), create: async () => createWasmInstance((await threeWasm!()) as never) },
       clock,
     );

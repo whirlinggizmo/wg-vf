@@ -7,7 +7,7 @@ import { describe, test } from 'bun:test';
 import { VignetteHost } from '../../src/hosts/VignetteHost.js';
 import { hostConformanceCases, type MakeHost } from '../../src/testing/conformance.js';
 
-const makeHost: MakeHost = (entry, clock) => new VignetteHost(entry, clock);
+const makeHost: MakeHost = (vignetteId, entry, clock) => VignetteHost.single(vignetteId, entry, clock);
 
 describe('VignetteHost conformance', () => {
   for (const c of hostConformanceCases(makeHost)) {

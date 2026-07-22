@@ -4,7 +4,8 @@
 // cross-host / cross-binding determinism suite (§4). System Ready carries a
 // random resumeToken, so it is deliberately excluded from the trace.
 
-import { VignetteHost, type HostVignetteEntry, type PeerConnection } from '../hosts/VignetteHost.js';
+import { VignetteHost, type PeerConnection } from '../hosts/VignetteHost.js';
+import type { ManifestEntry } from '../hosts/Manifest.js';
 import type { Vignette } from '../vignettes/Vignette.js';
 import type { BytePeer } from '../transports/BytePeer.js';
 import { VirtualClock } from './VirtualClock.js';
@@ -55,8 +56,7 @@ export async function runScript(
   options: RunScriptOptions = {},
 ): Promise<ScriptResult> {
   const vignetteId = options.vignetteId ?? 'sim';
-  const entry: HostVignetteEntry = {
-    vignetteId,
+  const entry: ManifestEntry = {
     version: '1.0.0',
     fixedStepUs: options.fixedStepUs ?? 16_666,
     maxSubsteps: options.maxSubsteps ?? 4,
@@ -67,7 +67,7 @@ export async function runScript(
   };
 
   const clock = new VirtualClock(0);
-  const host = new VignetteHost(entry, clock);
+  const host = VignetteHost.single(vignetteId, entry, clock);
   const peers = new Map<string, { peer: HostPeer; conn: PeerConnection }>();
   const traces: Record<string, string[]> = {};
 

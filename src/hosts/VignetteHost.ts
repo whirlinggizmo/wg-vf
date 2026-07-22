@@ -13,6 +13,13 @@ import { Clock } from './Clock.js';
 import { FixedStepEngine } from './FixedStepEngine.js';
 import { HostLoop } from './HostLoop.js';
 import { PeerRegistry } from './PeerRegistry.js';
+import {
+  isModuleSource,
+  singleVignetteManifest,
+  type Manifest,
+  type ManifestEntry,
+} from './Manifest.js';
+import { loadVignetteModule } from './loadVignetteModule.js';
 import type { BytePeer } from '../transports/BytePeer.js';
 import {
   PeerLeftReason,
@@ -42,19 +49,9 @@ import {
 
 export type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED';
 
-/** A single manifest entry in code form (full Manifest resolution is Phase 5). */
-export interface HostVignetteEntry {
-  vignetteId: string;
-  version: string;
-  fixedStepUs: number;
-  maxSubsteps: number;
-  maxPeers: number;
+export interface VignetteHostOptions {
+  /** Payload cap before a vignette is provisioned. Defaults to 1 MiB. */
   maxPayloadBytes?: number;
-  /** Reconnect grace window in ms. 0 (default) = abrupt drop evicts immediately. */
-  reconnectGraceMs?: number;
-  /** Empty-session grace in ms. 0 (default) = teardown on last detach. */
-  emptyGraceMs?: number;
-  create(): Vignette | Promise<Vignette>;
 }
 
 export interface PeerConnection {
@@ -85,9 +82,14 @@ export class VignetteHost {
   private readonly clock: Clock;
   private readonly registry = new PeerRegistry();
   private readonly conns = new Set<Conn>();
-  private readonly maxPayloadBytes: number;
-  private readonly reconnectGraceUs: number;
-  private readonly emptyGraceUs: number;
+  private readonly defaultMaxPayloadBytes: number;
+
+  // Set at Provision when the named vignette is resolved (Part I §3.1).
+  private provisionedId: string | null = null;
+  private provisioned: ManifestEntry | null = null;
+  private maxPayloadBytes: number;
+  private reconnectGraceUs = 0;
+  private emptyGraceUs = 0;
 
   private state: HostState = 'IDLE';
   private vignette: Vignette | null = null;
@@ -108,13 +110,23 @@ export class VignetteHost {
   private opChain: Promise<void> = Promise.resolve();
 
   constructor(
-    private readonly entry: HostVignetteEntry,
+    private readonly manifest: Manifest,
     clock: Clock,
+    options: VignetteHostOptions = {},
   ) {
     this.clock = clock;
-    this.maxPayloadBytes = entry.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
-    this.reconnectGraceUs = (entry.reconnectGraceMs ?? 0) * 1000;
-    this.emptyGraceUs = (entry.emptyGraceMs ?? 0) * 1000;
+    this.defaultMaxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
+    this.maxPayloadBytes = this.defaultMaxPayloadBytes;
+  }
+
+  /** Convenience for a host that serves a single named vignette. */
+  static single(
+    vignetteId: string,
+    entry: ManifestEntry,
+    clock: Clock,
+    options?: VignetteHostOptions,
+  ): VignetteHost {
+    return new VignetteHost(singleVignetteManifest(vignetteId, entry), clock, options);
   }
 
   getState(): HostState {
@@ -234,15 +246,18 @@ export class VignetteHost {
       this.sendError(conn.pipe, ErrorCode.Generic, 'malformed Init payload');
       return;
     }
-    if (init.vignetteId !== this.entry.vignetteId) {
+    // Resolve the named id against the manifest (Part I §3.1) — the host, not
+    // the peer, decides what code runs.
+    const entry = this.manifest.vignettes[init.vignetteId];
+    if (!entry) {
       this.sendError(conn.pipe, ErrorCode.UnknownVignette, init.vignetteId);
       return;
     }
 
     this.state = 'INITING';
     try {
-      this.vignette = await this.entry.create();
-      this.engine = new FixedStepEngine(this.entry.fixedStepUs, this.entry.maxSubsteps);
+      this.vignette = isModuleSource(entry) ? await loadVignetteModule(entry) : await entry.create();
+      this.engine = new FixedStepEngine(entry.fixedStepUs, entry.maxSubsteps);
       await this.vignette.init(init.initPayload);
     } catch (err) {
       // init failure: report to the provisioning peer, stay un-provisioned so a
@@ -253,6 +268,13 @@ export class VignetteHost {
       this.sendError(conn.pipe, ErrorCode.Generic, errMessage(err));
       return;
     }
+
+    // Lock the session to the resolved vignette and its policy.
+    this.provisionedId = init.vignetteId;
+    this.provisioned = entry;
+    this.maxPayloadBytes = entry.maxPayloadBytes ?? this.defaultMaxPayloadBytes;
+    this.reconnectGraceUs = (entry.reconnectGraceMs ?? 0) * 1000;
+    this.emptyGraceUs = (entry.emptyGraceMs ?? 0) * 1000;
 
     this.loop = new HostLoop(this.clock, this.engine, this.vignette, this.loopHooks());
     this.state = 'READY';
@@ -269,7 +291,7 @@ export class VignetteHost {
       this.sendError(conn.pipe, ErrorCode.Generic, 'malformed Join payload');
       return;
     }
-    if (join.vignetteId !== this.entry.vignetteId) {
+    if (join.vignetteId !== this.provisionedId) {
       this.sendError(conn.pipe, ErrorCode.UnknownVignette, join.vignetteId);
       return;
     }
@@ -280,7 +302,7 @@ export class VignetteHost {
       return;
     }
 
-    if (this.registry.attachedCount >= this.entry.maxPeers) {
+    if (this.registry.attachedCount >= this.provisioned!.maxPeers) {
       this.sendError(conn.pipe, ErrorCode.SessionFull, 'session full');
       return;
     }
@@ -529,10 +551,10 @@ export class VignetteHost {
       encodeSystemEnvelope(
         SystemType.Ready,
         encodeReadyPayload({
-          vignetteId: this.entry.vignetteId,
-          version: this.entry.version,
+          vignetteId: this.provisionedId!,
+          version: this.provisioned!.version,
           clientId,
-          fixedStepUs: this.entry.fixedStepUs,
+          fixedStepUs: this.provisioned!.fixedStepUs,
           resumeToken,
         }),
         clientId,

@@ -7,7 +7,8 @@
 // `test()`. Assertions throw a descriptive Error on failure.
 
 import type { Clock } from '../hosts/Clock.js';
-import type { HostState, HostVignetteEntry } from '../hosts/VignetteHost.js';
+import type { HostState } from '../hosts/VignetteHost.js';
+import type { ManifestEntry, VignetteConfig } from '../hosts/Manifest.js';
 import type { BytePeer } from '../transports/BytePeer.js';
 import type { Vignette } from '../vignettes/Vignette.js';
 import { BaseVignette } from '../vignettes/BaseVignette.js';
@@ -30,7 +31,7 @@ export interface ConformanceHost {
   getState(): HostState;
 }
 
-export type MakeHost = (entry: HostVignetteEntry, clock: Clock) => ConformanceHost;
+export type MakeHost = (vignetteId: string, entry: ManifestEntry, clock: Clock) => ConformanceHost;
 
 export interface ConformanceCase {
   id: string;
@@ -72,9 +73,8 @@ class FaultyRecorder extends BaseVignette {
 
 // --- scenario builder ------------------------------------------------------
 
-function buildEntry(create: () => Vignette, over: Partial<HostVignetteEntry> = {}): HostVignetteEntry {
+function buildEntry(create: () => Vignette, over: Partial<VignetteConfig> = {}): ManifestEntry {
   return {
-    vignetteId: 'sim',
     version: '1.0.0',
     fixedStepUs: STEP,
     maxSubsteps: 4,
@@ -84,9 +84,9 @@ function buildEntry(create: () => Vignette, over: Partial<HostVignetteEntry> = {
   };
 }
 
-function scenario(makeHost: MakeHost, create: () => Vignette, over?: Partial<HostVignetteEntry>) {
+function scenario(makeHost: MakeHost, create: () => Vignette, over?: Partial<VignetteConfig>) {
   const clock = new VirtualClock(0);
-  const host = makeHost(buildEntry(create, over), clock);
+  const host = makeHost('sim', buildEntry(create, over), clock);
   const connect = () => {
     const { a, b } = createLoopbackPipe();
     const pc = host.connect(a);

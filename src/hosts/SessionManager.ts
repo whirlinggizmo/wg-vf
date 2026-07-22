@@ -9,12 +9,13 @@
 // with loopback pipes (no real sockets required).
 
 import { type Clock, SystemClock } from './Clock.js';
-import { VignetteHost, type HostVignetteEntry, type PeerConnection } from './VignetteHost.js';
+import { VignetteHost, type PeerConnection } from './VignetteHost.js';
+import type { Manifest } from './Manifest.js';
 import type { BytePeer } from '../transports/BytePeer.js';
 
 export interface SessionManagerOptions {
-  /** Resolve a session key to its manifest entry, or null to reject the key. */
-  entryFor(key: string): HostVignetteEntry | null;
+  /** Resolve a session key to the manifest its host uses, or null to reject the key. */
+  manifestFor(key: string): Manifest | null;
   /** Shared clock for every host. Defaults to SystemClock. */
   clock?: Clock;
 }
@@ -39,11 +40,11 @@ export class SessionManager {
       host = undefined;
     }
     if (!host) {
-      const entry = this.options.entryFor(key);
-      if (!entry) {
+      const manifest = this.options.manifestFor(key);
+      if (!manifest) {
         return null;
       }
-      host = new VignetteHost(entry, this.clock);
+      host = new VignetteHost(manifest, this.clock);
       this.hosts.set(key, host);
     }
     return host.connect(pipe);

@@ -4,10 +4,11 @@
 // speaks the ordinary envelope protocol, identical to the remote path.
 
 import { type Clock, SystemClock } from './Clock.js';
-import { VignetteHost, type HostVignetteEntry } from './VignetteHost.js';
+import { VignetteHost, type VignetteHostOptions } from './VignetteHost.js';
+import type { Manifest } from './Manifest.js';
 import { messagePortBytePeer, type MessagePortLike } from '../transports/MessagePortBytePeer.js';
 
-export interface WorkerHostOptions {
+export interface WorkerHostOptions extends VignetteHostOptions {
   clock?: Clock;
   /** Real-time pump interval in ms. Ignored when autopump is false. */
   pumpIntervalMs?: number;
@@ -28,10 +29,12 @@ export interface WorkerHostHandle {
  */
 export function runWorkerHost(
   port: MessagePortLike,
-  entry: HostVignetteEntry,
+  manifest: Manifest,
   options: WorkerHostOptions = {},
 ): WorkerHostHandle {
-  const host = new VignetteHost(entry, options.clock ?? new SystemClock());
+  const host = new VignetteHost(manifest, options.clock ?? new SystemClock(), {
+    maxPayloadBytes: options.maxPayloadBytes,
+  });
   host.connect(messagePortBytePeer(port));
 
   let timer: ReturnType<typeof setInterval> | null = null;

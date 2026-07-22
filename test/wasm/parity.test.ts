@@ -8,7 +8,8 @@ import { describe, expect, test } from 'bun:test';
 import { createWasmInstance } from '../../src/vignettes/WasmVignette.js';
 import { CounterVignette, EchoVignette } from '../../src/testing/vignettes.js';
 import type { OutboxEntry, Vignette } from '../../src/vignettes/Vignette.js';
-import { VignetteHost, type HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
+import { VignetteHost } from '../../src/hosts/VignetteHost.js';
+import type { ManifestEntry } from '../../src/hosts/Manifest.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
 import { HostPeer } from '../../src/testing/HostPeer.js';
@@ -46,8 +47,8 @@ function sameEntries(a: OutboxEntry[], b: OutboxEntry[]): void {
   }
 }
 
-function hostEntry(create: HostVignetteEntry['create']): HostVignetteEntry {
-  return { vignetteId: 'sim', version: '1.0.0', fixedStepUs: 16_666, maxSubsteps: 4, maxPeers: 8, create };
+function hostEntry(create: ManifestEntry['create']): ManifestEntry {
+  return { version: '1.0.0', fixedStepUs: 16_666, maxSubsteps: 4, maxPeers: 8, create };
 }
 
 describe('PAR / ABI-18: TS vs WASM bindings', () => {
@@ -94,7 +95,7 @@ describe('PAR / ABI-18: TS vs WASM bindings', () => {
 
   test.skipIf(!counterF)('a WASM vignette runs through VignetteHost end-to-end', async () => {
     const clock = new VirtualClock(0);
-    const host = new VignetteHost(hostEntry(() => wasmVignette(counterF!)), clock);
+    const host = VignetteHost.single('sim', hostEntry(() => wasmVignette(counterF!)), clock);
     const { a, b } = createLoopbackPipe();
     host.connect(a);
     const peer = new HostPeer(b);
@@ -114,7 +115,7 @@ describe('PAR / ABI-18: TS vs WASM bindings', () => {
 
   test.skipIf(!faultyF)('ABI-18: a WASM failure in handleMessage is sim-fatal (not peer-fault)', async () => {
     const clock = new VirtualClock(0);
-    const host = new VignetteHost(hostEntry(() => wasmVignette(faultyF!)), clock);
+    const host = VignetteHost.single('sim', hostEntry(() => wasmVignette(faultyF!)), clock);
     const { a, b } = createLoopbackPipe();
     host.connect(a);
     const peer = new HostPeer(b);

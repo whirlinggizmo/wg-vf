@@ -15,10 +15,21 @@ export {
 // Host core (docs/architecture-part1.md §2/§3, Part II).
 export {
   VignetteHost,
-  type HostVignetteEntry,
+  type VignetteHostOptions,
   type PeerConnection,
   type HostState,
 } from './hosts/VignetteHost.js';
+export {
+  singleVignetteManifest,
+  isModuleSource,
+  type Manifest,
+  type ManifestEntry,
+  type VignetteConfig,
+  type VignetteSource,
+  type FactorySource,
+  type ModuleSource,
+} from './hosts/Manifest.js';
+export { loadVignetteModule } from './hosts/loadVignetteModule.js';
 export { SessionManager, type SessionManagerOptions } from './hosts/SessionManager.js';
 export {
   runWorkerHost,

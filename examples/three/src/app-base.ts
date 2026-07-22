@@ -52,24 +52,22 @@ export class ThreeApp {
   async run(container: HTMLElement): Promise<void> {
     this.initRenderer(container);
 
-    this.worker = new Worker(new URL("./three-worker.ts", import.meta.url), {
-      type: "module",
-      name: this.kind,
-    });
+    this.worker = new Worker(new URL("./three-worker.ts", import.meta.url), { type: "module" });
     this.peer = messagePortBytePeer(this.worker as unknown as MessagePortLike);
     this.peer.onBytes((bytes) => this.onBytes(bytes));
 
-    // Provision the "three" vignette; SpawnPlayer follows on Ready.
+    // Name the vignette (js or wasm binding); the host resolves it from the
+    // worker's manifest. SpawnPlayer follows on Ready.
     this.peer.send(
       encodeSystemEnvelope(
         SystemType.Init,
         encodeInitPayload({
-          vignetteId: "three",
+          vignetteId: `three-${this.kind}`,
           initPayload: encodePayload({ type: "Init", scene: "three-demo" }),
         }),
       ),
     );
-    this.log(`provisioning '${this.kind}' vignette in worker`);
+    this.log(`provisioning 'three-${this.kind}' vignette in worker`);
   }
 
   sendMessage(msg: unknown): void {

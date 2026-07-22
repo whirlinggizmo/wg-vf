@@ -5,7 +5,8 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import { VignetteHost, type HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
+import { VignetteHost } from '../../src/hosts/VignetteHost.js';
+import type { ManifestEntry } from '../../src/hosts/Manifest.js';
 import type { Vignette } from '../../src/vignettes/Vignette.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
@@ -53,14 +54,14 @@ describe('DET-01/02 transport invariance', () => {
   });
 });
 
-function entry(create: () => Vignette): HostVignetteEntry {
-  return { vignetteId: 'sim', version: '1.0.0', fixedStepUs: STEP, maxSubsteps: 4, maxPeers: 8, create };
+function entry(create: () => Vignette): ManifestEntry {
+  return { version: '1.0.0', fixedStepUs: STEP, maxSubsteps: 4, maxPeers: 8, create };
 }
 
 describe('DET-04 frame-loss tolerance', () => {
   test('lossy frame channel drops only frames; App/event stream survives intact', async () => {
     const clock = new VirtualClock(0);
-    const host = new VignetteHost(entry(() => new CounterVignette(1)), clock);
+    const host = VignetteHost.single('sim', entry(() => new CounterVignette(1)), clock);
 
     // Clean founding peer.
     const cleanPipe = createLoopbackPipe();

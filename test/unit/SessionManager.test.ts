@@ -6,7 +6,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import { SessionManager } from '../../src/hosts/SessionManager.js';
-import type { HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
+import { singleVignetteManifest } from '../../src/hosts/Manifest.js';
+import type { ManifestEntry } from '../../src/hosts/Manifest.js';
 import type { Vignette } from '../../src/vignettes/Vignette.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
@@ -16,9 +17,8 @@ import { Channel, SystemType } from '../../src/envelope/index.js';
 
 const STEP = 16_666;
 
-function entry(create: () => Vignette, over: Partial<HostVignetteEntry> = {}): HostVignetteEntry {
+function entry(create: () => Vignette, over: Partial<ManifestEntry> = {}): ManifestEntry {
   return {
-    vignetteId: 'sim',
     version: '1.0.0',
     fixedStepUs: STEP,
     maxSubsteps: 4,
@@ -28,11 +28,11 @@ function entry(create: () => Vignette, over: Partial<HostVignetteEntry> = {}): H
   };
 }
 
-function setup(create: () => Vignette, over?: Partial<HostVignetteEntry>) {
+function setup(create: () => Vignette, over?: Partial<ManifestEntry>) {
   const clock = new VirtualClock(0);
   const mgr = new SessionManager({
     clock,
-    entryFor: (key) => (key === 'bad' ? null : entry(create, over)),
+    manifestFor: (key) => (key === 'bad' ? null : singleVignetteManifest('sim', entry(create, over))),
   });
   const connect = (key: string): (HostPeer & { attached: boolean }) => {
     const { a, b } = createLoopbackPipe();

@@ -1,20 +1,19 @@
-// Worker entry: runs a VignetteHost inside this worker, bridging the worker
-// port (`self`) to the host. The main thread talks to it over the ordinary
-// envelope protocol — identical to the remote path, just postMessage instead of
-// a socket.
+// Worker entry: a stock vf worker host driven by a manifest. The worker imports
+// no vignette — the framework resolves the id the app names ("simple") against
+// this manifest and loads the module itself (Part I §3.1, Part II §4).
 
-import { runWorkerHost, type MessagePortLike } from "../../src";
-import { createVignette } from "./vignette/js/simple-vignette";
+import { runWorkerHost, singleVignetteManifest, type MessagePortLike } from "../../src";
 
-runWorkerHost(self as unknown as MessagePortLike, {
-  vignetteId: "simple",
-  version: "1.0.0",
-  fixedStepUs: 16_666,
-  maxSubsteps: 4,
-  maxPeers: 8,
-  reconnectGraceMs: 0,
-  emptyGraceMs: 0,
-  create: () => createVignette(),
-});
-
-console.log("[worker] host running");
+runWorkerHost(
+  self as unknown as MessagePortLike,
+  singleVignetteManifest("simple", {
+    version: "1.0.0",
+    fixedStepUs: 16_666,
+    maxSubsteps: 4,
+    maxPeers: 8,
+    reconnectGraceMs: 0,
+    emptyGraceMs: 0,
+    type: "js",
+    module: new URL("./vignette/js/simple-vignette.ts", import.meta.url).href,
+  }),
+);

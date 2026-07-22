@@ -2,9 +2,8 @@ import {
   SessionManager,
   SystemClock,
   type BytePeer,
-  type HostVignetteEntry,
+  type Manifest,
 } from '../src';
-import { createVignette } from './simple/vignette/js/simple-vignette';
 
 function toUint8Array(message: unknown): Uint8Array | null {
   if (message instanceof Uint8Array) return message;
@@ -19,22 +18,27 @@ const port = Number(Bun.env.VF_HOST_PORT ?? 8787);
 const hostname = String(Bun.env.VF_HOST_HOSTNAME ?? '0.0.0.0');
 
 // A session per room key (from the URL path /r/<room>). Each room is an
-// independent VignetteHost; a torn-down room frees its key for a fresh
-// Provision. All rooms run the "simple" vignette here (manifest policy §3.1).
-function entryFor(_key: string): HostVignetteEntry {
+// independent host; a torn-down room frees its key for a fresh Provision. Every
+// room offers the same manifest — the host loads the "simple" vignette module
+// when a peer names it (Part I §3.1). The server imports no vignette code.
+function manifestFor(_key: string): Manifest {
   return {
-    vignetteId: 'simple',
-    version: '1.0.0',
-    fixedStepUs: 16_666,
-    maxSubsteps: 4,
-    maxPeers: 8,
-    reconnectGraceMs: 5_000,
-    emptyGraceMs: 10_000,
-    create: () => createVignette(),
+    vignettes: {
+      simple: {
+        version: '1.0.0',
+        fixedStepUs: 16_666,
+        maxSubsteps: 4,
+        maxPeers: 8,
+        reconnectGraceMs: 5_000,
+        emptyGraceMs: 10_000,
+        type: 'js',
+        module: new URL('./simple/vignette/js/simple-vignette.ts', import.meta.url).href,
+      },
+    },
   };
 }
 
-const sessions = new SessionManager({ entryFor, clock: new SystemClock() });
+const sessions = new SessionManager({ manifestFor, clock: new SystemClock() });
 
 type ConnData = { room: string; listeners: Set<(bytes: Uint8Array) => void>; disconnect: () => void };
 

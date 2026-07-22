@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { runWorkerHost } from '../../src/hosts/workerHost.js';
 import { messagePortBytePeer } from '../../src/transports/MessagePortBytePeer.js';
-import type { HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
+import { singleVignetteManifest, type ManifestEntry } from '../../src/hosts/Manifest.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { CounterVignette } from '../../src/testing/vignettes.js';
 import {
@@ -30,9 +30,8 @@ const flush = async (n = 6): Promise<void> => {
   for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-function entry(create: () => CounterVignette): HostVignetteEntry {
+function entry(create: () => CounterVignette): ManifestEntry {
   return {
-    vignetteId: 'sim',
     version: '1.0.0',
     fixedStepUs: STEP,
     maxSubsteps: 4,
@@ -59,7 +58,10 @@ describe('worker host', () => {
     const { port1, port2 } = new MessageChannel();
     const clock = new VirtualClock(0);
     const counter = new CounterVignette();
-    const { host } = runWorkerHost(port2, entry(() => counter), { clock, autopump: false });
+    const { host } = runWorkerHost(port2, singleVignetteManifest('sim', entry(() => counter)), {
+      clock,
+      autopump: false,
+    });
 
     const app = messagePortBytePeer(port1);
     const received: Envelope[] = [];

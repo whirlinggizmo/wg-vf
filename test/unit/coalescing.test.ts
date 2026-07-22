@@ -4,7 +4,8 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import { VignetteHost, type HostVignetteEntry } from '../../src/hosts/VignetteHost.js';
+import { VignetteHost } from '../../src/hosts/VignetteHost.js';
+import type { ManifestEntry } from '../../src/hosts/Manifest.js';
 import type { Vignette } from '../../src/vignettes/Vignette.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
@@ -15,15 +16,15 @@ import { readFrameHeader } from '../../src/envelope/index.js';
 
 const STEP = 16_666;
 
-function entry(create: () => Vignette): HostVignetteEntry {
-  return { vignetteId: 'sim', version: '1.0.0', fixedStepUs: STEP, maxSubsteps: 4, maxPeers: 8, create };
+function entry(create: () => Vignette): ManifestEntry {
+  return { version: '1.0.0', fixedStepUs: STEP, maxSubsteps: 4, maxPeers: 8, create };
 }
 
 describe('ENV-19/20 frame coalescing on a stalled reliable stream', () => {
   test('a stall keeps only the latest frame, but every App event still arrives in order', async () => {
     const clock = new VirtualClock(0);
     // emitEvery=1 → one App event per step, so App and Frame interleave.
-    const host = new VignetteHost(entry(() => new CounterVignette(1)), clock);
+    const host = VignetteHost.single('sim', entry(() => new CounterVignette(1)), clock);
 
     const inner = createLoopbackPipe();
     const link = coalescingPipe(inner.a);
