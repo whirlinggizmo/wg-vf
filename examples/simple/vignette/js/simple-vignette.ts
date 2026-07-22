@@ -1,52 +1,49 @@
-import type { Vignette } from "../../../../src";
-// Swap this import to use a different codec (msgpack, protobuf, etc.)
-import { decodePayload } from "../../../codecs/json-codec";
+import {
+  BaseVignette,
+  PeerLeftReason,
+  type FrameView,
+  type Vignette,
+} from "../../../../src";
 
-export default class EchoVignette implements Vignette {
-  private readonly outbox: Uint8Array[] = [];
+// A minimal v2 demo vignette exercising both channels: it counts on the fixed
+// step and publishes a frame each step (Frame channel), and echoes any App
+// message back to its sender (App channel).
+export default class SimpleVignette extends BaseVignette {
+  private counter = 0;
+  private frameSeq = 0;
+  private readonly body = new Uint8Array(8); // stepIndex u32, counter u32
+  private readonly view = new DataView(this.body.buffer);
 
-  async init(payload: Uint8Array): Promise<void> {
-    // no-op for example
-
-    // assume it's json?
-    console.log("[vignette (js)] init: ", decodePayload(payload));
+  override init(payload: Uint8Array): void {
+    console.log(`[vignette] init (${payload.length} init bytes)`);
   }
 
-  async tick(_dtUs: number, _frameId: number): Promise<void> {
-    console.log("[vignette (js)] received tick from host: dtUs=" + _dtUs + ", frameId=" + _frameId);
-
-    // no-op for example
+  override fixedTick(_stepUs: number, stepIndex: number): void {
+    this.counter = (this.counter + 1) >>> 0;
+    this.frameSeq = (this.frameSeq + 1) >>> 0;
+    this.view.setUint32(0, stepIndex, true);
+    this.view.setUint32(4, this.counter, true);
   }
 
-  async fixedTick(_stepUs: number, _stepIndex: number): Promise<void> {
-    //console.log("[vignette (js)] fixed tick");
-    // no-op for example
+  override handleMessage(senderId: number, payload: Uint8Array): void {
+    const text = new TextDecoder().decode(payload);
+    console.log(`[vignette] message from peer ${senderId}: ${text}`);
+    this.emit(senderId, new TextEncoder().encode(`echo: ${text}`));
   }
 
-  async handleMessage(payload: Uint8Array): Promise<void> {
-    console.log("[vignette (js)] received message: ", decodePayload(payload));
-
-    // echo it back
-    this.outbox.push(payload.slice());
+  override peerJoined(clientId: number): void {
+    console.log(`[vignette] peer ${clientId} joined`);
   }
 
-  async shutdown(): Promise<void> {
-    this.outbox.length = 0;
+  override peerLeft(clientId: number, reason: PeerLeftReason): void {
+    console.log(`[vignette] peer ${clientId} left (reason ${reason})`);
   }
 
-  outboxHasMessages(): boolean {
-    return this.outbox.length > 0;
-  }
-
-  outboxPop(): Uint8Array {
-    const msg = this.outbox.shift();
-    if (!msg) {
-      throw new Error("[vignette] vignette outbox is empty");
-    }
-    return msg;
+  override currentFrame(): FrameView {
+    return { seq: this.frameSeq, body: this.body.slice() };
   }
 }
 
 export function createVignette(): Vignette {
-  return new EchoVignette();
+  return new SimpleVignette();
 }
