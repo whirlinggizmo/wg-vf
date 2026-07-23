@@ -24,6 +24,14 @@ your app  ─envelopes─▶  a stock wg-vf HOST  ─ABI calls─▶  YOUR VIGNE
 - The same vignette source runs **unchanged** in a browser worker, a server
   process, as WASM, or as a native library. Don't assume where you run.
 
+> **Language & toolchain.** The simplest vignette is **plain TypeScript/JS** —
+> implement the `Vignette` interface (or extend `BaseVignette`) and you're done;
+> **no emscripten, clang, or build step is needed.** WASM/native is an *option*,
+> not a requirement — reach for the C ABI (`wg_vf.h`) only when you want a non-JS
+> language or native performance. The TS path is
+> [§5](#5-writing-a-vignette-in-typescript); the C-ABI path is
+> [§6](#6-writing-a-vignette-in-c--wasm-or-native).
+
 ### What you own vs. what the host owns
 
 | You own | The host owns |
