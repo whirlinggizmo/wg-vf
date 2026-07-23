@@ -1,5 +1,27 @@
 # Transport performance: copies, and how to remove them
 
+## Threading: isolate the sim from IO
+
+The authoritative-server shape is *sim in its own thread, network IO outside it*,
+so socket jitter and connection churn can't stall the fixed-step loop. wg-vf's
+`BytePeer` seam is the cut line between the two.
+
+- **Browser**: `runWorkerHost` already puts the host + sim in a **Worker**; the
+  app + its transport run on the main (render) thread.
+- **Server**: the reference `remote-server.ts` runs the sockets on the main
+  thread and the **SessionManager + hosts + sims + pump in a Worker**
+  (`remote-server-worker.ts`), multiplexing every connection over the one Worker
+  channel by a numeric id (`remote-server-bridge.ts`). The main thread only
+  shuttles raw bytes; it never touches the envelope. So both topologies share the
+  shape: **sim in a worker, IO on the "main" thread** (render for browser,
+  sockets for server).
+
+What this *doesn't* yet do (a deliberate next step): envelope (de)serialization
+still happens in the worker, next to the sim — isolation is from socket IO and
+churn, not from framing. Moving serialization onto the IO thread ("transport owns
+encoding", below) is step 2.
+
+
 The byte path copies payloads at a few points. This documents what's done, what's
 deliberately deferred, and the design of the advanced versions — so the next step
 is a decision, not a rediscovery.
