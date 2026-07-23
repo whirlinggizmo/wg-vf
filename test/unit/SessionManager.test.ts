@@ -28,10 +28,11 @@ function entry(create: () => Vignette, over: Partial<ManifestEntry> = {}): Manif
   };
 }
 
-function setup(create: () => Vignette, over?: Partial<ManifestEntry>) {
+function setup(create: () => Vignette, over?: Partial<ManifestEntry>, maxSessions?: number) {
   const clock = new VirtualClock(0);
   const mgr = new SessionManager({
     clock,
+    maxSessions,
     manifestFor: (key) => (key === 'bad' ? null : singleVignetteManifest('sim', entry(create, over))),
   });
   const connect = (key: string): (HostPeer & { attached: boolean }) => {
@@ -111,6 +112,39 @@ describe('SessionManager', () => {
     expect(f1).toBeDefined();
     expect(f2).toBeDefined();
     expect(f1!.payload).toEqual(f2!.payload);
+  });
+
+  test('SM-05: maxSessions caps new rooms but never blocks an existing one, and a freed slot re-opens', async () => {
+    // Cap of 2 live sessions; empty-grace 0 so a leave frees the slot at once.
+    const { mgr, connect } = setup(() => new EchoVignette(), { emptyGraceMs: 0 }, 2);
+    const a = connect('roomA');
+    a.init('sim');
+    await mgr.whenIdle();
+    const b = connect('roomB');
+    b.init('sim');
+    await mgr.whenIdle();
+    expect(mgr.sessionCount).toBe(2);
+
+    // A third distinct room is refused at capacity.
+    const c = connect('roomC');
+    expect(c.attached).toBe(false);
+    expect(mgr.sessionCount).toBe(2);
+
+    // A second peer joining an EXISTING room is still admitted (cap is on rooms).
+    const a2 = connect('roomA');
+    a2.join('sim');
+    await mgr.whenIdle();
+    expect(a2.ready()?.clientId).toBe(2);
+
+    // Freeing a slot (roomB empties → CLOSED → reaped) re-opens capacity.
+    b.leave();
+    await mgr.whenIdle();
+    expect(mgr.sessionCount).toBe(1);
+    const d = connect('roomD');
+    d.init('sim');
+    await mgr.whenIdle();
+    expect(d.attached).toBe(true);
+    expect(mgr.get('roomD')?.getState()).toBe('READY');
   });
 
   test('pumpAll reaps a session that shut down mid-pump', async () => {

@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**100 tests green; both projects typecheck; the package is git-installable. No
+**101 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -48,9 +48,13 @@ known correctness gaps.**
 - **Dev mode** (`allowClientModuleUrls`, Part I §3.7) — optional. The module form
   already covers real loading; this is the *client-supplied* URL escape hatch (a
   dev convenience + security hole). Likely never wanted in prod.
-- **WS conformance driving + server hardening** — run the deterministic battery
-  through a real socket adapter (needs a pump/clock control channel); multi-room
-  session-keyed server work. Low priority; live smoke covers the path.
+- **WS conformance driving** — run the deterministic battery through a real
+  socket adapter (needs a pump/clock control channel + a data/control ordering
+  barrier). High effort, low marginal value — the host is already proven
+  in-process and the socket adds only a thin byte adapter. Defer until a real
+  consumer needs the remote path regression-tested. *(Server hardening — socket
+  size cap, backpressure, `maxSessions` room cap, graceful shutdown — is done:
+  `SessionManager.maxSessions` + `examples/remote-server.ts`, covered by SM-05.)*
 - **Perf pass** — reduce ingress/egress payload copies; reusable staging. Do the
   transport-local wins anytime (guarded by DET); defer ABI-level copy-elision
   until the contract is frozen and there's a benchmark.

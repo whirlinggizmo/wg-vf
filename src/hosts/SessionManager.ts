@@ -18,31 +18,42 @@ export interface SessionManagerOptions {
   manifestFor(key: string): Manifest | null;
   /** Shared clock for every host. Defaults to SystemClock. */
   clock?: Clock;
+  /**
+   * Cap on concurrent live sessions. A connect to a *new* key beyond this is
+   * refused (a connect to an existing session is always admitted, subject to the
+   * host's own `maxPeers`). Unlimited when unset. Bounds host creation so an
+   * untrusted client cannot spin up rooms without limit.
+   */
+  maxSessions?: number;
 }
 
 export class SessionManager {
   private readonly clock: Clock;
+  private readonly maxSessions?: number;
   private readonly hosts = new Map<string, VignetteHost>();
 
   constructor(private readonly options: SessionManagerOptions) {
     this.clock = options.clock ?? new SystemClock();
+    this.maxSessions = options.maxSessions;
   }
 
   /**
-   * Attach a peer to session `key`, creating the host on first use (or
-   * replacing a CLOSED one so the key can be re-provisioned). Returns null if
-   * the key is unknown — the caller should refuse the connection.
+   * Attach a peer to session `key`, creating the host on first use. Returns null
+   * — and the caller should refuse the connection — if the key is unknown or the
+   * server is at `maxSessions` capacity for a new key.
    */
   connect(key: string, pipe: BytePeer): PeerConnection | null {
+    // Drop any CLOSED hosts first, so a re-provision of a stale key works and the
+    // capacity count reflects only live sessions.
+    this.reap();
     let host = this.hosts.get(key);
-    if (host && host.getState() === 'CLOSED') {
-      this.hosts.delete(key);
-      host = undefined;
-    }
     if (!host) {
       const manifest = this.options.manifestFor(key);
       if (!manifest) {
         return null;
+      }
+      if (this.maxSessions !== undefined && this.hosts.size >= this.maxSessions) {
+        return null; // at capacity — refuse a new session
       }
       host = new VignetteHost(manifest, this.clock);
       this.hosts.set(key, host);

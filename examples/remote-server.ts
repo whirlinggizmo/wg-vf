@@ -17,6 +17,21 @@ function toUint8Array(message: unknown): Uint8Array | null {
 const port = Number(Bun.env.VF_HOST_PORT ?? 8787);
 const hostname = String(Bun.env.VF_HOST_HOSTNAME ?? '0.0.0.0');
 
+// Hardening limits (env-overridable). These protect the process from untrusted
+// or slow clients — orthogonal to a host's own maxPayloadBytes/maxPeers, which
+// still apply per session underneath.
+//   MAX_ROOMS         — cap on concurrent sessions, so a client can't spin up
+//                       unbounded hosts (enforced in SessionManager).
+//   MAX_MESSAGE_BYTES — socket-level frame ceiling; Bun drops larger frames
+//                       (1009) before they reach a host. Sits above the host's
+//                       1 MiB payload cap plus envelope header + margin.
+//   MAX_BUFFERED_BYTES — if a client falls this far behind on the send buffer,
+//                       drop it rather than grow memory without bound.
+const MAX_ROOMS = Number(Bun.env.VF_MAX_ROOMS ?? 256);
+const MAX_MESSAGE_BYTES = Number(Bun.env.VF_MAX_MESSAGE_BYTES ?? 1024 * 1024 + 1024);
+const MAX_BUFFERED_BYTES = Number(Bun.env.VF_MAX_BUFFERED_BYTES ?? 4 * 1024 * 1024);
+const PUMP_INTERVAL_MS = Number(Bun.env.VF_PUMP_INTERVAL_MS ?? 16);
+
 // A session per room key (from the URL path /r/<room>). Each room is an
 // independent host; a torn-down room frees its key for a fresh Provision. Every
 // room offers the same manifest — the host loads the "simple" vignette module
@@ -38,11 +53,11 @@ function manifestFor(_key: string): Manifest {
   };
 }
 
-const sessions = new SessionManager({ manifestFor, clock: new SystemClock() });
+const sessions = new SessionManager({ manifestFor, clock: new SystemClock(), maxSessions: MAX_ROOMS });
 
 type ConnData = { room: string; listeners: Set<(bytes: Uint8Array) => void>; disconnect: () => void };
 
-Bun.serve<ConnData>({
+const server = Bun.serve<ConnData>({
   port,
   hostname,
   fetch(req, server) {
@@ -57,9 +72,17 @@ Bun.serve<ConnData>({
     return new Response('Expected WebSocket', { status: 426 });
   },
   websocket: {
+    // Bun closes (1009) any frame larger than this before it reaches a listener.
+    maxPayloadLength: MAX_MESSAGE_BYTES,
     open(ws) {
       const pipe: BytePeer = {
         send: (bytes) => {
+          // Backpressure: if the client is too far behind, drop it rather than
+          // let the outbound buffer grow without bound.
+          if (ws.getBufferedAmount() > MAX_BUFFERED_BYTES) {
+            ws.close(1013, 'backpressure: client too slow');
+            return;
+          }
           ws.send(bytes);
         },
         onBytes: (cb) => {
@@ -69,7 +92,8 @@ Bun.serve<ConnData>({
       };
       const conn = sessions.connect(ws.data.room, pipe);
       if (!conn) {
-        ws.close(1008, `unknown room ${ws.data.room}`);
+        // Unknown room, or the server is at MAX_ROOMS capacity. 1013 = try later.
+        ws.close(1013, `session unavailable: '${ws.data.room}'`);
         return;
       }
       ws.data.disconnect = conn.disconnect;
@@ -90,8 +114,20 @@ Bun.serve<ConnData>({
 });
 
 // Real-time driver: pump every live session, reaping any that shut down.
-setInterval(() => {
+const pumpTimer = setInterval(() => {
   void sessions.pumpAll();
-}, 16);
+}, PUMP_INTERVAL_MS);
+
+console.log(`[server] listening on ws://${hostname}:${port}/r/<room> (max ${MAX_ROOMS} rooms)`);
+
+// Graceful shutdown: stop pumping and stop accepting connections.
+function stop(signal: string): void {
+  console.log(`[server] ${signal} — shutting down`);
+  clearInterval(pumpTimer);
+  void server.stop();
+  process.exit(0);
+}
+process.on('SIGINT', () => stop('SIGINT'));
+process.on('SIGTERM', () => stop('SIGTERM'));
 
 console.log(`wg-vf v2 server on ws://${hostname}:${port} — connect to /r/<room>`);
