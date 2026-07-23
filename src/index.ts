@@ -73,3 +73,16 @@ export {
   type SessionRecord,
   type WebStorageLike,
 } from './client/SessionResume.js';
+
+// Host-owned vignette storage: a jailed in-memory mount (sync read/write/delete/
+// list) with async, host-driven restore/flush to a pluggable durable backend.
+// Lets a vignette persist state across a reload without touching real IO itself.
+export {
+  MountedStorage,
+  VignetteStorageSession,
+  StorageJailError,
+  jailPath,
+  scopeFor,
+  memoryDurableStore,
+  type DurableStore,
+} from './storage/VignetteStorage.js';
