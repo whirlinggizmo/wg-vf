@@ -85,6 +85,30 @@ class OpRecorder extends BaseVignette {
   }
 }
 
+/** Emits a distinct marker from peerJoined and handleMessage (ABI-04 drain). */
+class DrainProbe extends BaseVignette {
+  override peerJoined(): void {
+    this.broadcast(new Uint8Array([0x01]));
+  }
+  override handleMessage(): void {
+    this.broadcast(new Uint8Array([0x02]));
+  }
+}
+
+/** Logs membership + message ops with their ids (ABI-05 ordering). */
+class MembershipRecorder extends BaseVignette {
+  readonly log: string[] = [];
+  override peerJoined(id: number): void {
+    this.log.push(`join:${id}`);
+  }
+  override handleMessage(sender: number): void {
+    this.log.push(`msg:${sender}`);
+  }
+  override peerLeft(id: number): void {
+    this.log.push(`left:${id}`);
+  }
+}
+
 // --- scenario builder ------------------------------------------------------
 
 function buildEntry(create: () => Vignette, over: Partial<VignetteConfig> = {}): ManifestEntry {
@@ -286,6 +310,42 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     eq(host.getState(), 'READY', 'sim survives');
   });
 
+  // --- call discipline (§2.2) ---
+  add('ABI-04', 'the outbox is drained after each op (peerJoined, handleMessage)', async () => {
+    const { host, connect } = scenario(makeHost, () => new DrainProbe());
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    // The peerJoined marker (0x01) was drained and delivered on provision.
+    assert(p.apps().some((e) => e.payload[0] === 0x01), 'peerJoined output drained');
+    p.app(new Uint8Array([9]));
+    await host.whenIdle();
+    assert(p.apps().some((e) => e.payload[0] === 0x02), 'handleMessage output drained');
+  });
+
+  add('ABI-05', 'peerJoined precedes first handleMessage; none after peerLeft', async () => {
+    const rec = new MembershipRecorder();
+    const { host, connect } = scenario(makeHost, () => rec);
+    connect().init('sim');
+    await host.whenIdle();
+    const p2 = connect();
+    p2.join('sim');
+    await host.whenIdle();
+    p2.app(new Uint8Array([1]));
+    await host.whenIdle();
+    p2.leave();
+    await host.whenIdle();
+    p2.app(new Uint8Array([2])); // after leave — must NOT be delivered
+    await host.whenIdle();
+
+    const joinIdx = rec.log.indexOf('join:2');
+    const firstMsgIdx = rec.log.indexOf('msg:2');
+    const leftIdx = rec.log.indexOf('left:2');
+    assert(joinIdx >= 0 && firstMsgIdx > joinIdx, 'peerJoined(2) precedes first handleMessage(2)');
+    assert(leftIdx > firstMsgIdx, 'peerLeft(2) after the message');
+    assert(!rec.log.slice(leftIdx + 1).includes('msg:2'), 'no handleMessage(2) after peerLeft(2)');
+  });
+
   // --- loop ordering & message timing (§2.3) ---
   add('ABI-13', 'one pump runs exactly one tick, then the fixedTick burst', async () => {
     const rec = new OpRecorder();
@@ -466,6 +526,22 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     await host.whenIdle();
     jsonEq(counter.left, [{ id: 2, reason: PeerLeftReason.Left }], 'shutdown ≡ leave');
     eq(host.getState(), 'READY', 'session survives');
+  });
+
+  add('SES-22', 'a peer forging another id cannot impersonate it (echo routes to the true sender)', async () => {
+    const { host, connect } = scenario(makeHost, () => new EchoVignette());
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const p2 = connect();
+    p2.join('sim');
+    await host.whenIdle();
+    // p2 (real id 2) forges p1's clientId (1) on the wire.
+    p2.app(new Uint8Array([5, 5]), 1);
+    await host.whenIdle();
+    // The echo's unicast reply goes to the TRUE sender (p2), never to p1.
+    assert(p2.apps().some((e) => e.clientId === 2), 'unicast echo to the real sender');
+    assert(!p1.apps().some((e) => e.clientId === 1 || e.clientId === 2), 'p1 never receives p2 impersonating it');
   });
 
   // --- lifetime ---

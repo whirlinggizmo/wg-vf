@@ -14,7 +14,7 @@ const emsdk = process.env.EMSCRIPTEN_SDK || '/home/rknopf/toolchains/emsdk';
 process.env.PATH = `${emsdk}/upstream/emscripten:${process.env.PATH ?? ''}`;
 
 const EXPORTS = [
-  '_vf_init', '_vf_tick', '_vf_fixed_tick', '_vf_handle_message',
+  '_vf_abi_version', '_vf_init', '_vf_tick', '_vf_fixed_tick', '_vf_handle_message',
   '_vf_peer_joined', '_vf_peer_left', '_vf_shutdown',
   '_vf_outbox_offset', '_vf_outbox_capacity',
   '_vf_frame_offset', '_vf_frame_len', '_vf_frame_seq',

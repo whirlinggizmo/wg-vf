@@ -1,7 +1,7 @@
 # wg-vf Conformance Test Plan
 
 **Status:** Implemented — the battery is green (84 tests). · **Companion to:** Architecture Part I (Contracts).
-**Convention:** Test IDs are `AREA-NN` and reference the contract clause they verify; each maps to a test (or a tightly-scoped describe block). `MUST`-level assertions are release-blocking; `SHOULD`-level are flagged `[S]`. Still outstanding: ABI-01..06 (call discipline — covered implicitly by op-chain serialization), SES-22, PAR-03/04, and the ENV-09 nightly-CI gate.
+**Convention:** Test IDs are `AREA-NN` and reference the contract clause they verify; each maps to a test (or a tightly-scoped describe block). `MUST`-level assertions are release-blocking; `SHOULD`-level are flagged `[S]`. Still outstanding: ABI-01/02/03 (init-before-ops, no-ops-after-shutdown, reentrancy — held implicitly by the op-chain), PAR-03/04, and the ENV-09 nightly-CI gate. (ABI-04/05 and SES-22 now have explicit cases.)
 
 ---
 

@@ -9,8 +9,15 @@ export { PeerLeftReason } from './vignettes/Vignette.js';
 export { BaseVignette } from './vignettes/BaseVignette.js';
 export {
   createWasmInstance,
+  WG_VF_ABI_VERSION,
   type WasmVignetteInstance,
 } from './vignettes/WasmVignette.js';
+
+// Version surfaces (see the author guide's versioning section):
+//   VERSION          — framework package version (semver)
+//   WG_VF_ABI_VERSION — host↔native/wasm-sim ABI version (integer, above)
+//   ENVELOPE_VERSION  — host↔app wire version (from ./envelope, below)
+export { VERSION } from './version.js';
 
 // Host core (docs/architecture-part1.md §2/§3, Part II).
 export {

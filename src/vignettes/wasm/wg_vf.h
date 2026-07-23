@@ -27,6 +27,17 @@
 extern "C" {
 #endif
 
+/*
+ * ABI version. A single integer, bumped on ANY breaking change to the vf_*
+ * signatures or the outbox/frame memory layout (semver-major for a binary ABI).
+ * The host calls vf_abi_version() when loading a vignette and refuses to run a
+ * mismatched one, so a sim compiled against an older/newer header fails loudly
+ * instead of corrupting memory.
+ */
+#define WG_VF_ABI_VERSION 1u
+
+uint32_t vf_abi_version(void);
+
 /* ======================================================================== */
 /* Author API — implement handlers, register, emit, publish frames.         */
 /* ======================================================================== */

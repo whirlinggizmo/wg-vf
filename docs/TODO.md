@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**84 tests green; both projects typecheck; the package is git-installable. No
+**90 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -36,6 +36,9 @@ known correctness gaps.**
   session-keyed reference server (`examples/remote-server.ts`).
 - **Packaging**: ESM, git-installable, ships `dist` + the C ABI assets under
   `native/`; Docker toolchain (`Dockerfile` + `docker-compose.yml`).
+- **Versioning**: four surfaces — `ENVELOPE_VERSION` (wire), `WG_VF_ABI_VERSION`
+  (host↔native/wasm ABI, checked on load), manifest `version` (vignette), and
+  `VERSION` (package). See `AGENTS.md` + the author guide §11.
 
 ## Remaining (none blocking)
 
@@ -50,11 +53,9 @@ known correctness gaps.**
   until the contract is frozen and there's a benchmark.
 - **PAR-04** — document oversized-inbound rejection at the WASM staging layer
   (the host already caps inbound via ENV-25).
-- **Conformance coverage gaps** — a few plan IDs aren't separately asserted even
-  though the mechanisms hold: ABI-01..06 (call discipline — covered implicitly by
-  the op-chain serialization + drain-after-op), SES-22 (end-to-end impersonation —
-  ENV-10/22 cover the mechanism), PAR-03 (WASM staging paths / alloc-failure).
-  Add explicit cases if we want the battery airtight.
+- **Conformance coverage gaps (remaining)** — ABI-04/05, SES-22 now have explicit
+  cases. Still implicit-only: ABI-01/02/03 (init-before-ops, no-ops-after-shutdown,
+  reentrancy — held by the op-chain) and PAR-03 (WASM staging paths / alloc-failure).
 - **Native C host** — designed in [native-host-design.md](./native-host-design.md);
   build when a no-JS-runtime need is concrete.
 - **Phase 8 dogfood** — Rest Easy as conformance consumer #4 (downstream; further

@@ -318,6 +318,30 @@ peer.frames();                 // Frame envelopes (latest-wins)
 
 ---
 
+## 11. Versioning
+
+Four independent version surfaces keep a moving framework from silently
+mismatching a running app or sim:
+
+- **Wire** — `ENVELOPE_VERSION` (the envelope's version byte). If an app and host
+  disagree, the decoder rejects the envelope with `Error(UnsupportedVersion)`
+  before delivery. Your App payload *format* is your own concern (version it
+  however you like inside the bytes).
+- **ABI** — `WG_VF_ABI_VERSION` (`wg_vf.h`). A native/wasm vignette exports
+  `vf_abi_version()`; the host checks it on load and **refuses a mismatch** with a
+  clear error. So when you upgrade wg-vf, **rebuild your `.wasm`/`.so`** against
+  the new header — a stale binary fails loudly instead of corrupting memory. (TS
+  vignettes are checked at compile time by the `Vignette` interface, so no runtime
+  version is needed.)
+- **Vignette** — the `version` in your manifest entry (your own semver). It's
+  echoed back in `Ready`, so a peer can confirm it got the version it asked for.
+- **Package** — `VERSION` (the wg-vf semver), exported for diagnostics/logging.
+
+Practical rule: **rebuild native/wasm vignettes whenever you bump wg-vf.** If the
+ABI version changed, the host tells you; if it didn't, the rebuild is a no-op.
+
+---
+
 ## Checklist
 
 - [ ] All sim state changes in `fixedTick`, driven by `stepUs`/`stepIndex`.

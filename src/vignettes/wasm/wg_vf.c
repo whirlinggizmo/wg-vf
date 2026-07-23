@@ -108,6 +108,10 @@ void wg_vf_publish_frame(uint32_t seq, const uint8_t *body, uint32_t len) {
 
 /* --- host-facing ABI --- */
 
+uint32_t vf_abi_version(void) {
+  return WG_VF_ABI_VERSION;
+}
+
 uint32_t vf_init(uintptr_t in_ptr, uint32_t in_len) {
   outbox_init();
   if (g_handlers.on_init) {

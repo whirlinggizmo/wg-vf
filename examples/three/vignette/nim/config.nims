@@ -99,7 +99,7 @@ when declared(switch):
     switch("passL", "-v")
     switch("passL", "-sEXPORTED_RUNTIME_METHODS=[\"HEAPU8\",\"ccall\",\"cwrap\",\"addFunction\",\"lengthBytesUTF8\",\"stringToUTF8\",\"UTF8ToString\"]")
     switch("passL", "-sALLOW_TABLE_GROWTH")
-    switch("passL", "-sEXPORTED_FUNCTIONS=[\"_vf_init\",\"_vf_tick\",\"_vf_fixed_tick\",\"_vf_handle_message\",\"_vf_peer_joined\",\"_vf_peer_left\",\"_vf_shutdown\",\"_vf_outbox_offset\",\"_vf_outbox_capacity\",\"_vf_frame_offset\",\"_vf_frame_len\",\"_vf_frame_seq\",\"_vf_mem_alloc\",\"_vf_mem_free\",\"_malloc\",\"_free\",\"_main\"]")
+    switch("passL", "-sEXPORTED_FUNCTIONS=[\"_vf_abi_version\",\"_vf_init\",\"_vf_tick\",\"_vf_fixed_tick\",\"_vf_handle_message\",\"_vf_peer_joined\",\"_vf_peer_left\",\"_vf_shutdown\",\"_vf_outbox_offset\",\"_vf_outbox_capacity\",\"_vf_frame_offset\",\"_vf_frame_len\",\"_vf_frame_seq\",\"_vf_mem_alloc\",\"_vf_mem_free\",\"_malloc\",\"_free\",\"_main\"]")
     switch("passL", "-Oz")
 
   when defined(shared):

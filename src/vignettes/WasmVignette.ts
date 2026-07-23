@@ -33,9 +33,16 @@ interface WasmCallExports {
   vf_mem_free?: WasmExportFn;
 }
 
+/**
+ * The wg_vf ABI version this host understands. Must match `WG_VF_ABI_VERSION`
+ * in wg_vf.h. A vignette reporting a different version (or none) is refused.
+ */
+export const WG_VF_ABI_VERSION = 1;
+
 /** The shape of an emscripten MODULARIZE module instance. */
 export interface WasmVignetteInstance {
   HEAPU8: Uint8Array;
+  _vf_abi_version?: WasmExportFn;
   _vf_init: WasmExportFn;
   _vf_tick: WasmExportFn;
   _vf_fixed_tick: WasmExportFn;
@@ -217,6 +224,16 @@ class WasmVignette implements Vignette {
 
 /** Wrap an emscripten MODULARIZE module instance as a Vignette. */
 export function createWasmInstance(module: WasmVignetteInstance): Vignette {
+  // Refuse a vignette built against an incompatible ABI (§ versioning). A
+  // missing export means it predates ABI versioning — also incompatible.
+  const reported = typeof module._vf_abi_version === 'function' ? module._vf_abi_version() >>> 0 : 0;
+  if (reported !== WG_VF_ABI_VERSION) {
+    throw new Error(
+      `wg-vf ABI mismatch: vignette reports ABI ${reported || 'unknown'}, host expects ${WG_VF_ABI_VERSION}. ` +
+        `Rebuild the vignette against this version's wg_vf.h.`,
+    );
+  }
+
   const exports: WasmCallExports = {
     vf_init: module._vf_init,
     vf_tick: module._vf_tick,
