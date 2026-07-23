@@ -6,19 +6,11 @@
 import { describe, expect, test } from 'bun:test';
 
 import { runWorkerHost } from '../../src/hosts/workerHost.js';
-import { messagePortBytePeer } from '../../src/transports/MessagePortBytePeer.js';
+import { messagePortBytePeer, messagePortEnvelopePeer } from '../../src/transports/MessagePortBytePeer.js';
 import { singleVignetteManifest, type ManifestEntry } from '../../src/hosts/Manifest.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { CounterVignette } from '../../src/testing/vignettes.js';
-import {
-  Channel,
-  SystemType,
-  decodeEnvelope,
-  encodeAppEnvelope,
-  encodeSystemEnvelope,
-  readFrameHeader,
-  type Envelope,
-} from '../../src/envelope/index.js';
+import { Channel, SystemType, readFrameHeader, type Envelope } from '../../src/envelope/index.js';
 import {
   decodeReadyPayload,
   encodeInitPayload,
@@ -63,14 +55,17 @@ describe('worker host', () => {
       autopump: false,
     });
 
-    const app = messagePortBytePeer(port1);
+    const app = messagePortEnvelopePeer(port1); // structured envelopes — no framing
     const received: Envelope[] = [];
-    app.onBytes((bytes) => received.push(decodeEnvelope(bytes)));
+    app.onEnvelope((env) => received.push(env));
 
     // Provision.
-    app.send(
-      encodeSystemEnvelope(SystemType.Init, encodeInitPayload({ vignetteId: 'sim', initPayload: new Uint8Array() })),
-    );
+    app.send({
+      channel: Channel.System,
+      systemType: SystemType.Init,
+      clientId: 0,
+      payload: encodeInitPayload({ vignetteId: 'sim', initPayload: new Uint8Array() }),
+    });
     await flush();
     await host.whenIdle();
     await flush();
@@ -94,7 +89,7 @@ describe('worker host', () => {
 
     // An App message reaches the sim (counter records its received dt via tick,
     // but here we just confirm the sim keeps advancing after the message).
-    app.send(encodeAppEnvelope(new Uint8Array([9])));
+    app.send({ channel: Channel.App, systemType: 0, clientId: 0, payload: new Uint8Array([9]) });
     await flush();
     await host.whenIdle();
     expect(host.getState()).toBe('READY');

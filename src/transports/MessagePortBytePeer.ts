@@ -7,6 +7,8 @@
 // in-process, no real Worker required).
 
 import type { BytePeer, SendOptions } from './BytePeer.js';
+import type { EnvelopePeer } from './EnvelopePeer.js';
+import type { Envelope } from '../envelope/index.js';
 
 export interface MessagePortLike {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -54,6 +56,43 @@ export function messagePortBytePeer(port: MessagePortLike): BytePeer {
       }
     },
     onBytes(cb: (bytes: Uint8Array) => void): () => void {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+  };
+}
+
+/**
+ * Adapt a postMessage port into an {@link EnvelopePeer} that carries structured
+ * envelopes directly — no byte framing. The envelope object is structured-cloned
+ * across the boundary; a granted, owned payload buffer is transferred (zero-copy).
+ * The wire unit is the Envelope, so this is the framing-free local counterpart to
+ * `byteEnvelopePeer(messagePortBytePeer(port))` — use it for the worker path to
+ * make (de)serialization a no-op.
+ */
+export function messagePortEnvelopePeer(port: MessagePortLike): EnvelopePeer {
+  const listeners = new Set<(env: Envelope) => void>();
+
+  const handler = (ev: MessageEvent) => {
+    const env = ev.data as Envelope | undefined;
+    if (!env || typeof env !== 'object' || !(env.payload instanceof Uint8Array)) return; // not an envelope
+    for (const cb of listeners) cb(env);
+  };
+
+  if (typeof port.addEventListener === 'function') {
+    port.addEventListener('message', handler);
+  } else {
+    port.onmessage = handler;
+  }
+  port.start?.();
+
+  return {
+    send(env: Envelope, opts?: SendOptions): void {
+      const p = env.payload;
+      const owned = !!opts?.transferable && p.byteOffset === 0 && p.buffer.byteLength === p.byteLength;
+      port.postMessage(env, owned ? [p.buffer] : undefined);
+    },
+    onEnvelope(cb: (env: Envelope) => void): () => void {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },

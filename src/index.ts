@@ -54,6 +54,7 @@ export type { BytePeer, SendOptions } from './transports/BytePeer.js';
 export { byteEnvelopePeer, type EnvelopePeer } from './transports/EnvelopePeer.js';
 export {
   messagePortBytePeer,
+  messagePortEnvelopePeer,
   type MessagePortLike,
 } from './transports/MessagePortBytePeer.js';
 export { WebSocketTransport } from './transports/WebSocketTransport.js';

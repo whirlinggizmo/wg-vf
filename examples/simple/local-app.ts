@@ -1,16 +1,14 @@
 // Single-player / local path: the host runs in a Web Worker, the app talks to
-// it over a postMessage BytePeer. Same envelope protocol as the remote app —
-// only the transport differs.
+// it over a postMessage EnvelopePeer. Same envelope protocol as the remote app —
+// only the transport differs, and locally the envelope crosses as a structured
+// object (no byte framing).
 
 import {
-  messagePortBytePeer,
+  messagePortEnvelopePeer,
   type MessagePortLike,
   Channel,
   SystemType,
-  encodeSystemEnvelope,
-  encodeAppEnvelope,
   encodeInitPayload,
-  decodeEnvelope,
   decodeReadyPayload,
   decodeErrorPayload,
   readFrameHeader,
@@ -19,21 +17,21 @@ import {
 const MAX_FRAMES = Number(Bun.env.VF_FRAMES ?? 5);
 
 const worker = new Worker(new URL("./local-worker.ts", import.meta.url).href, { type: "module" });
-const peer = messagePortBytePeer(worker as unknown as MessagePortLike);
+const peer = messagePortEnvelopePeer(worker as unknown as MessagePortLike);
 console.log("[app] worker host spawned");
 
 let frames = 0;
 
-peer.onBytes((bytes) => {
-  const env = decodeEnvelope(bytes);
-
+peer.onEnvelope((env) => {
   if (env.channel === Channel.System) {
     if (env.systemType === SystemType.Ready) {
       const r = decodeReadyPayload(env.payload)!;
       console.log(`[app] Ready: clientId=${r.clientId} vignette=${r.vignetteId}@${r.version} step=${r.fixedStepUs}us`);
-      // Sole-recipient (the host), freshly encoded → grant ownership so the
-      // worker boundary transfers instead of copying (see docs/transport-perf.md).
-      peer.send(encodeAppEnvelope(new TextEncoder().encode("hello from app")), { transferable: true });
+      // A structured envelope — no framing; the payload buffer is transferred.
+      peer.send(
+        { channel: Channel.App, systemType: 0, clientId: 0, payload: new TextEncoder().encode("hello from app") },
+        { transferable: true },
+      );
       console.log("[app] sent App message");
     } else if (env.systemType === SystemType.Error) {
       console.log("[app] Error:", decodeErrorPayload(env.payload));
@@ -58,12 +56,14 @@ peer.onBytes((bytes) => {
   }
 });
 
-// Provision by naming the vignette.
+// Provision by naming the vignette — a structured envelope over the port.
 peer.send(
-  encodeSystemEnvelope(
-    SystemType.Init,
-    encodeInitPayload({ vignetteId: "simple", initPayload: new TextEncoder().encode("{}") }),
-  ),
+  {
+    channel: Channel.System,
+    systemType: SystemType.Init,
+    clientId: 0,
+    payload: encodeInitPayload({ vignetteId: "simple", initPayload: new TextEncoder().encode("{}") }),
+  },
   { transferable: true },
 );
 console.log("[app] sent Init");

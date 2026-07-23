@@ -22,9 +22,19 @@ concern (`byteEnvelopePeer`) that runs wherever the transport runs. In the
 server, the **main thread decodes inbound socket bytes and encodes outbound**;
 the bridge carries structured envelopes; the worker's `SessionManager.connectEnvelopes`
 hands the host envelopes directly — so the sim thread never touches the wire
-format. `VignetteHost.connect(bytePeer)` still wraps with `byteEnvelopePeer` for
-the in-thread case (browser worker, tests), so where framing runs is just "which
-side wraps."
+format. `VignetteHost.connect(bytePeer)` still wraps with `byteEnvelopePeer` when a
+transport carries bytes (WebSocket), so where framing runs is just "which side
+wraps."
+
+**Local (worker) framing is a no-op.** Because the `Envelope` is the protocol
+unit and bytes are only *one* wire form of it, the worker path carries the
+envelope **object** directly over `postMessage` (`messagePortEnvelopePeer` +
+`connectEnvelopes`) — no header alloc/write on send, no parse/slice on receive.
+The payload buffer is transferred (zero-copy); the header fields ride as object
+properties. So on the single-player path there is no serialization at all, and it
+doesn't cost uniformity: the WS transport and the worker transport deliver the
+*same* logical envelopes, so determinism-across-transports still holds. (WS must
+still frame — a socket needs contiguous bytes.)
 
 
 The byte path copies payloads at a few points. This documents what's done, what's

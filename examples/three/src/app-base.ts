@@ -1,15 +1,13 @@
 import * as THREE from "three";
 import {
-  messagePortBytePeer,
+  messagePortEnvelopePeer,
   Channel,
   SystemType,
-  encodeSystemEnvelope,
-  encodeAppEnvelope,
   encodeInitPayload,
-  decodeEnvelope,
   decodeReadyPayload,
   decodeErrorPayload,
-  type BytePeer,
+  type Envelope,
+  type EnvelopePeer,
   type MessagePortLike,
 } from "../../../src";
 import { decodePayload, encodePayload } from "../../codecs/json-codec";
@@ -30,7 +28,7 @@ export type VignetteKind = "js" | "wasm";
 // arrives on the App channel as JSON and drives the scene.
 export class ThreeApp {
   private worker: Worker | null = null;
-  private peer: BytePeer | null = null;
+  private peer: EnvelopePeer | null = null;
 
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
@@ -53,30 +51,33 @@ export class ThreeApp {
     this.initRenderer(container);
 
     this.worker = new Worker(new URL("./three-worker.ts", import.meta.url), { type: "module" });
-    this.peer = messagePortBytePeer(this.worker as unknown as MessagePortLike);
-    this.peer.onBytes((bytes) => this.onBytes(bytes));
+    this.peer = messagePortEnvelopePeer(this.worker as unknown as MessagePortLike);
+    this.peer.onEnvelope((env) => this.onEnvelope(env));
 
     // Name the vignette (js or wasm binding); the host resolves it from the
-    // worker's manifest. SpawnPlayer follows on Ready.
-    // A client send is always the sole use of a freshly encoded envelope, and the
-    // host is the sole recipient — so grant ownership (transferable): the worker
-    // boundary moves the buffer instead of structured-cloning it (zero-copy
-    // app→sim on this path; see docs/transport-perf.md).
+    // worker's manifest. SpawnPlayer follows on Ready. The envelope crosses the
+    // worker boundary as a structured object — no byte framing — and the payload
+    // buffer is transferred (zero-copy; see docs/transport-perf.md).
     this.peer.send(
-      encodeSystemEnvelope(
-        SystemType.Init,
-        encodeInitPayload({
+      {
+        channel: Channel.System,
+        systemType: SystemType.Init,
+        clientId: 0,
+        payload: encodeInitPayload({
           vignetteId: `three-${this.kind}`,
           initPayload: encodePayload({ type: "Init", scene: "three-demo" }),
         }),
-      ),
+      },
       { transferable: true },
     );
     this.log(`provisioning 'three-${this.kind}' vignette in worker`);
   }
 
   sendMessage(msg: unknown): void {
-    this.peer?.send(encodeAppEnvelope(encodePayload(msg)), { transferable: true });
+    this.peer?.send(
+      { channel: Channel.App, systemType: 0, clientId: 0, payload: encodePayload(msg) },
+      { transferable: true },
+    );
   }
 
   spawnEntity(): void {
@@ -90,8 +91,7 @@ export class ThreeApp {
     this.disposeRenderer();
   }
 
-  private onBytes(bytes: Uint8Array): void {
-    const env = decodeEnvelope(bytes);
+  private onEnvelope(env: Envelope): void {
     if (env.channel === Channel.System) {
       if (env.systemType === SystemType.Ready) {
         this.log("ready:", decodeReadyPayload(env.payload));

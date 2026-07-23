@@ -6,7 +6,7 @@
 import { type Clock, SystemClock } from './Clock.js';
 import { VignetteHost, type VignetteHostOptions } from './VignetteHost.js';
 import type { Manifest } from './Manifest.js';
-import { messagePortBytePeer, type MessagePortLike } from '../transports/MessagePortBytePeer.js';
+import { messagePortEnvelopePeer, type MessagePortLike } from '../transports/MessagePortBytePeer.js';
 
 export interface WorkerHostOptions extends VignetteHostOptions {
   clock?: Clock;
@@ -37,7 +37,8 @@ export function runWorkerHost(
     durableStore: options.durableStore,
     storageKey: options.storageKey,
   });
-  host.connect(messagePortBytePeer(port));
+  // Structured envelopes over the port — no byte framing on the local path.
+  host.connectEnvelopes(messagePortEnvelopePeer(port));
 
   let timer: ReturnType<typeof setInterval> | null = null;
   if (options.autopump !== false) {
