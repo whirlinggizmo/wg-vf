@@ -32,6 +32,13 @@ const MAX_MESSAGE_BYTES = Number(Bun.env.VF_MAX_MESSAGE_BYTES ?? 1024 * 1024 + 1
 const MAX_BUFFERED_BYTES = Number(Bun.env.VF_MAX_BUFFERED_BYTES ?? 4 * 1024 * 1024);
 const PUMP_INTERVAL_MS = Number(Bun.env.VF_PUMP_INTERVAL_MS ?? 16);
 
+// Session lifetime. These must bracket a realistic client outage — a phone
+// switching access points and reloading the page can take tens of seconds — so
+// a returning peer (resume-Join with its saved token) still finds its id in
+// grace and the room still alive. See the author guide's resume section.
+const RECONNECT_GRACE_MS = Number(Bun.env.VF_RECONNECT_GRACE_MS ?? 30_000);
+const EMPTY_GRACE_MS = Number(Bun.env.VF_EMPTY_GRACE_MS ?? 60_000);
+
 // A session per room key (from the URL path /r/<room>). Each room is an
 // independent host; a torn-down room frees its key for a fresh Provision. Every
 // room offers the same manifest — the host loads the "simple" vignette module
@@ -44,8 +51,8 @@ function manifestFor(_key: string): Manifest {
         fixedStepUs: 16_666,
         maxSubsteps: 4,
         maxPeers: 8,
-        reconnectGraceMs: 5_000,
-        emptyGraceMs: 10_000,
+        reconnectGraceMs: RECONNECT_GRACE_MS,
+        emptyGraceMs: EMPTY_GRACE_MS,
         type: 'js',
         module: new URL('./simple/vignette/js/simple-vignette.ts', import.meta.url).href,
       },

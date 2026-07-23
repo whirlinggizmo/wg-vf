@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**101 tests green; both projects typecheck; the package is git-installable. No
+**110 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -35,8 +35,14 @@ known correctness gaps.**
   (ENV-25). Only the ENV-09 nightly-CI gate remains.
 - **Determinism** (DET-01..05): cross-binding (TS vs WASM/native), overload,
   transport invariance, frame-loss tolerance; T-SCRIPT, T-LOSSY, T-GOLD.
-- **Transports**: worker (`messagePortBytePeer` + `runWorkerHost`) and WebSocket;
-  session-keyed reference server (`examples/remote-server.ts`).
+- **Transports**: worker (`messagePortBytePeer` + `runWorkerHost`) and WebSocket
+  (plus `ReconnectingWebSocketTransport`); session-keyed reference server
+  (`examples/remote-server.ts`).
+- **Session resume**: client-side `ResumeCoordinator` + `TokenStore`
+  (`webStorageTokenStore`/`memoryTokenStore`) reopens with a resume-`Join` so a
+  `clientId` survives a transport drop or page reload; host round-trip covered by
+  SES-20 (resume in grace) / SES-21 (post-expiry fallback), demonstrated e2e over
+  a real socket via `remote-app.ts` (`VF_SESSION_FILE`).
 - **Packaging**: ESM, git-installable, ships `dist` + the C ABI assets under
   `native/`; Docker toolchain (`Dockerfile` + `docker-compose.yml`).
 - **Versioning**: four surfaces — `ENVELOPE_VERSION` (wire), `WG_VF_ABI_VERSION`

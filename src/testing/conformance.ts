@@ -703,6 +703,60 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     assert(p2.frames().length > 0, 'peer B still served');
   });
 
+  add('SES-20', 'a resume-Join within grace rebinds the same id with no peerLeft', async () => {
+    const counter = new CounterVignette();
+    const { host, clock, connect } = scenario(makeHost, () => counter, {
+      reconnectGraceMs: 30_000,
+      emptyGraceMs: 120_000,
+    });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const token = p1.ready()!.resumeToken;
+    eq(p1.ready()!.clientId, 1, 'first id');
+    assert(token.length > 0, 'a resume token was issued');
+
+    p1.disconnect(); // transport drops → enters reconnect grace (no peerLeft yet)
+    await host.whenIdle();
+    jsonEq(counter.left, [], 'no peerLeft while the id is in grace');
+
+    clock.advance(5_000_000); // 5s later — well within the 30s grace
+    const p2 = connect();
+    p2.join('sim', token); // reconnect carrying the saved token
+    await host.whenIdle();
+    eq(p2.ready()!.clientId, 1, 'the same id is rebound');
+    jsonEq(counter.left, [], 'the sim never saw the peer leave');
+    assert(p2.ready()!.resumeToken.length > 0, 'a fresh token is issued on resume');
+  });
+
+  add('SES-21', 'a resume-Join after grace expiry falls back to a fresh id', async () => {
+    const counter = new CounterVignette();
+    const { host, clock, connect } = scenario(makeHost, () => counter, {
+      reconnectGraceMs: 10_000,
+      emptyGraceMs: 120_000,
+    });
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const staleToken = p1.ready()!.resumeToken;
+    // A second peer keeps the session alive past p1's grace expiry.
+    const keep = connect();
+    keep.join('sim');
+    await host.whenIdle();
+
+    p1.disconnect();
+    await host.whenIdle();
+    clock.advance(10_000_000 + STEP); // past the 10s grace
+    await host.poll(); // fire the grace-expiry timer
+    jsonEq(counter.left, [{ id: 1, reason: PeerLeftReason.TimedOut }], 'grace expired → peerLeft(TimedOut)');
+
+    // Reconnecting with the now-stale token gets an ordinary Join → a new id.
+    const p3 = connect();
+    p3.join('sim', staleToken);
+    await host.whenIdle();
+    assert(p3.ready()!.clientId !== 1, `stale token yields a fresh id, got ${p3.ready()!.clientId}`);
+  });
+
   add('SES-19', 'emptyGraceMs 0 tears down immediately on last detach', async () => {
     const { host, connect } = scenario(makeHost, () => new CounterVignette(), { emptyGraceMs: 0 });
     const p = connect();

@@ -356,6 +356,48 @@ changed, the host tells you at load; if it didn't, the rebuild is a no-op.
 
 ---
 
+## 12. Session resume (client-side)
+
+This one is about your **app/client**, not the vignette — but it's the difference
+between a dropped connection losing everything and a peer keeping its identity.
+
+When a peer's transport drops, the host holds its `clientId` in **reconnect
+grace** (`reconnectGraceMs`) instead of evicting it. From the *vignette's* side a
+resume is seamless: **no `peerLeft`, no second `peerJoined`** — the sim never saw
+the peer go. Only if grace lapses does the peer get `peerLeft(…, TimedOut)`.
+
+To claim that grace, a returning peer must present the **`resumeToken`** from its
+last `Ready` in a `Join`. Two layers make that survive real-world outages:
+
+- **Socket** — `ReconnectingWebSocketTransport` reconnects the WebSocket with
+  backoff (an access-point switch *without* a reload).
+- **Session** — `ResumeCoordinator` + a `TokenStore` persist the token and open
+  each connection with a resume-`Join`. Back it with `sessionStorage` so it also
+  survives a **full page reload**:
+
+  ```ts
+  const resume = new ResumeCoordinator('myVignette', webStorageTokenStore('room:' + room, sessionStorage));
+  // on (re)connect:
+  socket.send(resume.opening(initBytes));       // resume-Join if a token is held, else Init
+  // on every Ready:
+  const { resumed } = resume.onReady(ready);    // persists the fresh token
+  if (!resumed) resetLocalSessionState();       // fresh id — first run, or grace had lapsed
+  // on a terminating Error/Shutdown: resume.reset();
+  ```
+
+Two things to get right:
+
+- **Grace must bracket the outage.** `tryReconnect` only matches an id that's
+  *still* in grace and a room that's *still* alive, so set `reconnectGraceMs` and
+  `emptyGraceMs` wider than a realistic reload/network transition (the reference
+  server defaults to 30 s / 60 s). Past that, the token is refused and the peer
+  gets a fresh id — handle `resumed === false`.
+- **The token is a bearer credential.** Whoever holds it rebinds that `clientId`.
+  Prefer `sessionStorage` (tab-scoped, cleared on close) over `localStorage`, and
+  treat it like a session secret.
+
+---
+
 ## Checklist
 
 - [ ] All sim state changes in `fixedTick`, driven by `stepUs`/`stepIndex`.

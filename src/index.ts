@@ -60,3 +60,16 @@ export {
   ReconnectingWebSocketTransport,
   type ReconnectingWebSocketTransportOptions,
 } from './transports/ReconnectingWebSocketTransport.js';
+
+// Client-side session resume (Part I §3.3): persist the resumeToken and reopen
+// with a resume-Join so a clientId survives a transport drop or a page reload.
+// Complements ReconnectingWebSocketTransport (which keeps the socket alive):
+// this keeps the *session* alive. See the author guide's resume section.
+export {
+  ResumeCoordinator,
+  memoryTokenStore,
+  webStorageTokenStore,
+  type TokenStore,
+  type SessionRecord,
+  type WebStorageLike,
+} from './client/SessionResume.js';
