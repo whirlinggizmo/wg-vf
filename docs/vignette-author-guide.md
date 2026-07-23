@@ -398,6 +398,66 @@ Two things to get right:
 
 ---
 
+## 13. Persisting state (the vignette filesystem)
+
+Session resume (§12) keeps your *identity*; the filesystem keeps your *state*.
+Use it to reconstitute a sim after a reload, restart, or crash — the difference
+between "everyone lost the world" and "pick up where you left off". Full contract:
+[Vignette FS ABI](./vignette-fs-abi.md).
+
+You get a small **jailed filesystem** via `this.fs` (host-owned, so it works the
+same as TS, wasm, or native — you never touch real IO). Synchronous ops plus one
+async `flush()`:
+
+```ts
+class World extends BaseVignette {
+  private state = new WorldState();
+
+  init() {
+    const saved = this.fs.read('world');          // restored before init runs
+    if (saved) this.state = WorldState.decode(saved);
+  }
+
+  private checkpoint() {
+    this.fs.write('world', this.state.encode());   // sync — writes the mount
+    this.fs.mkdir('replays');                       // mkdir -p; write auto-creates parents too
+    void this.fs.flush();                           // async durability barrier — at YOUR cadence
+  }
+
+  shutdown() { return this.fs.flush(); }            // graceful teardown: the host awaits this
+}
+```
+
+The rules that keep this honest:
+
+- **Reads only hit the in-memory mount.** The host **restores** your scope's data
+  *before* `init`, so `read` never blocks. There is no async read — load at start,
+  then work in memory. (This is also why it's deterministic-safe: no IO inside a
+  step.)
+- **You flush; the host doesn't.** `flush()` is a durability barrier — call it at
+  a natural checkpoint (a save point, `visibilitychange → hidden`, level end), not
+  every tick. On a *graceful* teardown the host awaits your `shutdown()`, so
+  flushing there lands too. A worker `terminate()` (page unload) gets no
+  `shutdown()`, so don't rely on it — flush at your cadence.
+- **The jail is real.** Paths are confined to your scope; `..`, absolute paths,
+  and drive letters are rejected. You can't read another session's data or escape
+  to the disk.
+
+Wiring (the host embedder, not you) picks the durable backend and the **scope key**
+— the stable id (save slot / room / user) a returning instance reuses:
+
+```ts
+runWorkerHost(port, manifest, {
+  durableStore: indexedDbDurableStore(),   // browser/worker; or memoryDurableStore() for tests
+  storageKey: saveSlot,
+});
+```
+
+Without a `durableStore`, `this.fs` still works but is **ephemeral** (gone on
+teardown) — handy for scratch state.
+
+---
+
 ## Checklist
 
 - [ ] All sim state changes in `fixedTick`, driven by `stepUs`/`stepIndex`.
@@ -406,4 +466,5 @@ Two things to get right:
 - [ ] Treat `frameId`/`stepIndex`/`frameSeq` as wrapping u32.
 - [ ] No wall-clock, no unseeded randomness (if you want determinism).
 - [ ] `currentFrame()` snapshots by value; `frameSeq` advances only on a step.
+- [ ] If persisting: restore from `this.fs` in `init`, `flush()` at checkpoints (not per-tick), and don't rely on `shutdown()` for a worker page-unload.
 - [ ] Default-export a class/factory (TS), or register handlers with `wg_vf_register` from a constructor (native).

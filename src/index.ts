@@ -88,3 +88,7 @@ export {
   type VignetteFs,
   type DurableStore,
 } from './storage/VignetteStorage.js';
+export {
+  indexedDbDurableStore,
+  type IndexedDbDurableStoreOptions,
+} from './storage/indexedDbDurableStore.js';
