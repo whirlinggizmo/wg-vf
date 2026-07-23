@@ -62,6 +62,10 @@ function resolveKey(path: string): string {
  */
 export class MountedStorage {
   private readonly files = new Map<string, Uint8Array>();
+  // Explicit directories (from mkdir, or auto-created as a file's ancestors).
+  // Directories that merely contain a file are implicit — derived on demand — so
+  // this set only needs to carry ones that would otherwise be empty.
+  private readonly dirs = new Set<string>();
 
   read(path: string): Uint8Array | null {
     const bytes = this.files.get(resolveKey(path));
@@ -69,15 +73,44 @@ export class MountedStorage {
   }
 
   write(path: string, bytes: Uint8Array): void {
-    this.files.set(resolveKey(path), bytes.slice());
+    const key = resolveKey(path);
+    this.files.set(key, bytes.slice());
+    this.addAncestors(key); // a write implies its parent directories (mkdir -p)
   }
 
   delete(path: string): boolean {
     return this.files.delete(resolveKey(path));
   }
 
+  /** Create a directory and every missing parent (like `mkdir -p`). Idempotent. */
+  mkdir(path: string): void {
+    const key = jailPath(path);
+    if (key === null) throw new StorageJailError(path);
+    if (key === '') return; // the root always exists
+    let prefix = '';
+    for (const seg of key.split('/')) {
+      prefix = prefix ? `${prefix}/${seg}` : seg;
+      this.dirs.add(prefix);
+    }
+  }
+
+  /** True if a file or directory exists at `path` (`""` = the always-present root). */
   exists(path: string): boolean {
-    return this.files.has(resolveKey(path));
+    const key = jailPath(path);
+    if (key === null) throw new StorageJailError(path);
+    if (key === '') return true;
+    return this.files.has(key) || this.isDirectory(key);
+  }
+
+  /** True if `path` is a directory — explicit (mkdir) or implied by a file under it. */
+  isDirectory(path: string): boolean {
+    const key = jailPath(path);
+    if (key === null) throw new StorageJailError(path);
+    if (key === '') return true;
+    if (this.dirs.has(key)) return true;
+    const prefix = `${key}/`;
+    for (const k of this.files.keys()) if (k.startsWith(prefix)) return true;
+    return false;
   }
 
   /** Keys at or under `prefix` (default: all), sorted. `""` lists the whole mount. */
@@ -88,6 +121,16 @@ export class MountedStorage {
     return keys.sort();
   }
 
+  /** Record every parent directory of a file key (mkdir -p on write). */
+  private addAncestors(key: string): void {
+    const parts = key.split('/');
+    let prefix = '';
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      prefix = prefix ? `${prefix}/${parts[i]}` : parts[i];
+      this.dirs.add(prefix);
+    }
+  }
+
   /** Number of files held. */
   get size(): number {
     return this.files.size;
@@ -96,23 +139,31 @@ export class MountedStorage {
   /**
    * Serialize the whole mount to a deterministic archive (keys sorted), so a
    * flush of unchanged state produces identical bytes. Format (LE):
-   *   [count u32] then per entry: [keyLen u32][key][dataLen u32][data].
+   *   [fileCount u32] { [keyLen u32][key][dataLen u32][data] }
+   *   [dirCount u32]  { [keyLen u32][key] }             ← empty/explicit dirs
    */
   serialize(): Uint8Array {
-    const keys = [...this.files.keys()].sort();
+    const fileKeys = [...this.files.keys()].sort();
+    const dirKeys = [...this.dirs].sort();
     let total = 4;
-    const encoded = keys.map((k) => {
+    const files = fileKeys.map((k) => {
       const key = textEncoder.encode(k);
       const data = this.files.get(k)!;
       total += 4 + key.length + 4 + data.length;
       return { key, data };
     });
+    total += 4;
+    const dirs = dirKeys.map((k) => {
+      const key = textEncoder.encode(k);
+      total += 4 + key.length;
+      return key;
+    });
     const out = new Uint8Array(total);
     const view = new DataView(out.buffer);
     let off = 0;
-    view.setUint32(off, encoded.length, true);
+    view.setUint32(off, files.length, true);
     off += 4;
-    for (const { key, data } of encoded) {
+    for (const { key, data } of files) {
       view.setUint32(off, key.length, true);
       off += 4;
       out.set(key, off);
@@ -122,18 +173,27 @@ export class MountedStorage {
       out.set(data, off);
       off += data.length;
     }
+    view.setUint32(off, dirs.length, true);
+    off += 4;
+    for (const key of dirs) {
+      view.setUint32(off, key.length, true);
+      off += 4;
+      out.set(key, off);
+      off += key.length;
+    }
     return out;
   }
 
   /** Replace the mount's contents from an archive produced by {@link serialize}. */
   loadFrom(bytes: Uint8Array): void {
     this.files.clear();
+    this.dirs.clear();
     if (bytes.length < 4) return;
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let off = 0;
-    const count = view.getUint32(off, true);
+    const fileCount = view.getUint32(off, true);
     off += 4;
-    for (let i = 0; i < count; i += 1) {
+    for (let i = 0; i < fileCount; i += 1) {
       const keyLen = view.getUint32(off, true);
       off += 4;
       const key = textDecoder.decode(bytes.subarray(off, off + keyLen));
@@ -142,6 +202,15 @@ export class MountedStorage {
       off += 4;
       this.files.set(key, bytes.slice(off, off + dataLen));
       off += dataLen;
+    }
+    if (off + 4 > bytes.length) return; // tolerate an archive with no dir section
+    const dirCount = view.getUint32(off, true);
+    off += 4;
+    for (let i = 0; i < dirCount; i += 1) {
+      const keyLen = view.getUint32(off, true);
+      off += 4;
+      this.dirs.add(textDecoder.decode(bytes.subarray(off, off + keyLen)));
+      off += keyLen;
     }
   }
 }

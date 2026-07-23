@@ -53,12 +53,49 @@ describe('MountedStorage', () => {
     expect(m.list('b')).toEqual(['b/1']);
   });
 
+  test('mkdir -p creates a directory and all parents; exists/isDirectory see them', () => {
+    const m = new MountedStorage();
+    m.mkdir('assets/textures/hi');
+    expect(m.isDirectory('assets')).toBe(true);
+    expect(m.isDirectory('assets/textures')).toBe(true);
+    expect(m.isDirectory('assets/textures/hi')).toBe(true);
+    expect(m.exists('assets/textures')).toBe(true);
+    expect(m.exists('assets/textures/hi')).toBe(true);
+    expect(m.mkdir('assets/textures/hi')).toBeUndefined(); // idempotent
+  });
+
+  test('a write auto-creates its parent directories (mkdir -p on write)', () => {
+    const m = new MountedStorage();
+    m.write('levels/1/tiles.bin', new Uint8Array([1]));
+    expect(m.exists('levels/1/tiles.bin')).toBe(true); // the file
+    expect(m.isDirectory('levels/1')).toBe(true); // implied parent
+    expect(m.isDirectory('levels')).toBe(true);
+    expect(m.exists('levels/2')).toBe(false);
+  });
+
+  test('the root always exists', () => {
+    const m = new MountedStorage();
+    expect(m.exists('')).toBe(true);
+    expect(m.isDirectory('/')).toBe(true);
+  });
+
   test('an escaping path throws on every op', () => {
     const m = new MountedStorage();
     expect(() => m.write('../evil', new Uint8Array())).toThrow(StorageJailError);
     expect(() => m.read('../evil')).toThrow(StorageJailError);
     expect(() => m.delete('C:/x')).toThrow(StorageJailError);
     expect(() => m.list('../..')).toThrow(StorageJailError);
+    expect(() => m.mkdir('../evil')).toThrow(StorageJailError);
+  });
+
+  test('an empty mkdir directory survives a serialize/loadFrom round-trip', () => {
+    const a = new MountedStorage();
+    a.mkdir('cache/empty');
+    a.write('data', new Uint8Array([1]));
+    const b = new MountedStorage();
+    b.loadFrom(a.serialize());
+    expect(b.isDirectory('cache/empty')).toBe(true); // empty dir preserved
+    expect(Array.from(b.read('data')!)).toEqual([1]);
   });
 
   test('serialize is deterministic and round-trips through loadFrom', () => {
