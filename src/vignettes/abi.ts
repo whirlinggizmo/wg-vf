@@ -9,4 +9,4 @@
 //     (BaseVignette sets it for free); loadVignetteModule refuses a mismatch.
 //   - JS (factory/`create` form): none needed — it's compiled in the same
 //     project as the host, so the `Vignette` interface catches drift at build.
-export const WG_VF_ABI_VERSION = 1;
+export const WG_VF_ABI_VERSION = 2;

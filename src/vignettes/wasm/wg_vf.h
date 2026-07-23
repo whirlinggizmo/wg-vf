@@ -34,7 +34,7 @@ extern "C" {
  * mismatched one, so a sim compiled against an older/newer header fails loudly
  * instead of corrupting memory.
  */
-#define WG_VF_ABI_VERSION 1u
+#define WG_VF_ABI_VERSION 2u
 
 uint32_t vf_abi_version(void);
 
