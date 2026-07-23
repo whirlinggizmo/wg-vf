@@ -3,7 +3,7 @@
 // default (deterministic for tests) or via microtask when `async` is set.
 // This is also the exported single-player / loopback transport.
 
-import type { BytePeer } from '../transports/BytePeer.js';
+import type { BytePeer, SendOptions } from '../transports/BytePeer.js';
 
 class LoopbackEnd implements BytePeer {
   private listeners = new Set<(bytes: Uint8Array) => void>();
@@ -12,15 +12,16 @@ class LoopbackEnd implements BytePeer {
 
   constructor(private readonly asyncDelivery: boolean) {}
 
-  send(bytes: Uint8Array): void {
+  send(bytes: Uint8Array, opts?: SendOptions): void {
     const target = this.peer;
     if (!target) return;
-    // Copy so a caller reusing its buffer cannot mutate delivered bytes.
-    const copy = bytes.slice();
+    // Copy so a caller reusing its buffer cannot mutate delivered bytes — unless
+    // the caller grants ownership (sole recipient), then deliver it as-is.
+    const payload = opts?.transferable ? bytes : bytes.slice();
     if (this.asyncDelivery) {
-      queueMicrotask(() => target.deliver(copy));
+      queueMicrotask(() => target.deliver(payload));
     } else {
-      target.deliver(copy);
+      target.deliver(payload);
     }
   }
 

@@ -6,7 +6,7 @@
 // `self`, and a `MessageChannel` port (the last makes the worker host testable
 // in-process, no real Worker required).
 
-import type { BytePeer } from './BytePeer.js';
+import type { BytePeer, SendOptions } from './BytePeer.js';
 
 export interface MessagePortLike {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -42,10 +42,16 @@ export function messagePortBytePeer(port: MessagePortLike): BytePeer {
   port.start?.();
 
   return {
-    send(bytes: Uint8Array): void {
-      // Structured clone copies the bytes; correct across the boundary and
-      // avoids detaching a buffer the caller may reuse.
-      port.postMessage(bytes);
+    send(bytes: Uint8Array, opts?: SendOptions): void {
+      // Zero-copy across the boundary when the caller grants ownership AND this
+      // view owns its whole buffer (else transferring would neuter unrelated
+      // bytes). Otherwise structured clone copies — correct, but slower for large
+      // frames on the local (worker) path.
+      if (opts?.transferable && bytes.byteOffset === 0 && bytes.buffer.byteLength === bytes.byteLength) {
+        port.postMessage(bytes, [bytes.buffer]);
+      } else {
+        port.postMessage(bytes);
+      }
     },
     onBytes(cb: (bytes: Uint8Array) => void): () => void {
       listeners.add(cb);

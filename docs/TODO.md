@@ -69,9 +69,12 @@ known correctness gaps.**
   consumer needs the remote path regression-tested. *(Server hardening — socket
   size cap, backpressure, `maxSessions` room cap, graceful shutdown — is done:
   `SessionManager.maxSessions` + `examples/remote-server.ts`, covered by SM-05.)*
-- **Perf pass** — reduce ingress/egress payload copies; reusable staging. Do the
-  transport-local wins anytime (guarded by DET); defer ABI-level copy-elision
-  until the contract is frozen and there's a benchmark.
+- **Perf pass** — [transport-perf.md](./transport-perf.md) maps the copies.
+  *Done:* the transport-local win — the `SendOptions.transferable` ownership hint,
+  so the worker path transfers frames zero-copy and loopback skips its defensive
+  copy (DET-guarded). *Deferred (ABI-level, benchmark-gated):* buffer pooling /
+  return-swap, SharedArrayBuffer for the wasm boundary, and eliminating the
+  envelope framing copy.
 - **Native FS binding** — the [FS ABI](./vignette-fs-abi.md) `wg_vf_fs_*` imports
   for native vignettes (TS + wasm are done and parity-tested). Lands with the
   native host, which supplies the symbols (can back them with `wgutils-c/fileio`).

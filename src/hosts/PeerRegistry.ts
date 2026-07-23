@@ -55,11 +55,14 @@ export class PeerRegistry {
    */
   route(targetId: number, bytes: Uint8Array): void {
     if (targetId === 0) {
+      // A broadcast shares one buffer across peers, so a transport may only take
+      // it when there's exactly one recipient (e.g. the single-player worker path).
+      const transferable = this.attached.size === 1;
       for (const pipe of this.attached.values()) {
-        pipe.send(bytes);
+        pipe.send(bytes, { transferable });
       }
       return;
     }
-    this.attached.get(targetId)?.send(bytes);
+    this.attached.get(targetId)?.send(bytes, { transferable: true }); // unicast: sole recipient
   }
 }
