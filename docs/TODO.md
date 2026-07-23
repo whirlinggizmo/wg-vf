@@ -72,6 +72,12 @@ known correctness gaps.**
 - **Perf pass** — reduce ingress/egress payload copies; reusable staging. Do the
   transport-local wins anytime (guarded by DET); defer ABI-level copy-elision
   until the contract is frozen and there's a benchmark.
+- **Native FS binding** — the [FS ABI](./vignette-fs-abi.md) `wg_vf_fs_*` imports
+  for native vignettes (TS + wasm are done and parity-tested). Lands with the
+  native host, which supplies the symbols (can back them with `wgutils-c/fileio`).
+- **`fetch`-to-file capability** — a `VignetteServices.fetch(url → path)` so any
+  binding can pull assets and read them later. Model it as fetch-to-file + poll to
+  stay JSPI-free; the host owns the network IO.
 - **Native C host** — designed in [native-host-design.md](./native-host-design.md);
   build when a no-JS-runtime need is concrete.
 - **Phase 8 dogfood** — Rest Easy as conformance consumer #4 (downstream; further
