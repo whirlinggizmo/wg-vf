@@ -1,10 +1,21 @@
 # wg-vf Architecture — Part II: Reference Host Scaffolding
 
-**Status:** Draft 0.1 · **Non-normative.** · **Companion to:** Architecture Part I (Contracts) Draft 0.1.
+**Status:** Non-normative · **Companion to:** Architecture Part I (Contracts).
+
+> **As-built note.** This document was written as a decomposition plan. The v2
+> reference host is built, and a few units named below live **inline in
+> `VignetteHost`** rather than as separate classes: frame publication is in
+> `HostLoop.pump()` + `VignetteHost.publishFrame` (there is no `FramePublisher`),
+> error containment is inline in `VignetteHost` (no separate `containment`
+> dispatch), and manifest resolution is an inline lookup in
+> `VignetteHost.handleInit` (no `resolveVignette` function). The real separate
+> units are `HostLoop`, `FixedStepEngine`, `Clock`, `PeerRegistry`, `Manifest`/
+> `loadVignetteModule`, and `SessionManager`. The "Today (`main`)" columns below
+> describe the **removed v1** baseline, kept for historical contrast.
 
 Part I specifies *what* every conforming host must do (wire, ABI, session). This document describes the **shared scaffolding** the reference hosts use to do it — the pieces that are not themselves contract but that all three reference hosts (TS worker host, Bun remote host, future native host) implement identically so that "pass the conformance suite" is cheap to reach and cross-host determinism (test plan §4) falls out by construction.
 
-Nothing here constrains a third-party host: a host may implement Part I any way it likes. This is the reference decomposition, and it is the decomposition the conformance harness (`runHostConformance`) is built to drive.
+Nothing here constrains a third-party host: a host may implement Part I any way it likes. This is the reference decomposition, and it is the decomposition the conformance harness (`hostConformanceCases`) is built to drive.
 
 > **Design stance:** the parts of a host whose behavior is *observable to a vignette or peer* are pushed down into shared, transport-agnostic units driven by an injected clock. The parts that differ between hosts — timer source, transport wiring, RPC framing — are pushed out to thin per-host adapters. The observable core is written once; only the adapters are written three times.
 
@@ -12,16 +23,16 @@ Nothing here constrains a third-party host: a host may implement Part I any way 
 
 ## 1. The seam map
 
-Current `main` has a single-peer host with three per-host concerns fused into `BaseVignetteHost`: the tick loop (`setTimeout` + `performance.now`), the send path (`setSendBytes`), and init resolution (`resolveInitPayload`). Part I's multi-peer contract pulls each into a shared unit with an injectable adapter:
+v1 (removed) had a single-peer host with three concerns fused together: the tick loop, the send path, and init resolution. Part I's multi-peer contract pulled each into a unit with an injectable adapter (some now live inline in `VignetteHost` — see the as-built note):
 
 | Concern | Today (`main`) | Part II shared unit | Per-host adapter |
 |---|---|---|---|
 | Time & pacing | `nowUs()` via `performance.now`; `setTimeout` loop | `HostLoop` with injected `nowUs()` + explicit `pump()` | timer driver (real interval vs. test `pump()`) |
 | Stepping | inline accumulator in the loop | `FixedStepEngine` (determinism core) | none — identical everywhere |
-| Send path | `setSendBytes(fn)` (one sink) | `PeerRegistry` + `attachPeer`/`detachPeer` | one `BytePeer` per transport attachment |
-| Provisioning | abstract `resolveInitPayload` | `Manifest` + `resolveVignette()` | manifest source (bundled object vs. file) |
-| Frame publish | *(absent)* | `FramePublisher` | transport frame mapping (coalesce vs. datagram) |
-| Error class | single fatal path | `containment` dispatch (peer-fault vs sim-fatal) | none — identical everywhere |
+| Send path | `setSendBytes(fn)` (one sink) | `PeerRegistry` (attach/detach) | one `BytePeer` per transport attachment |
+| Provisioning | abstract `resolveInitPayload` | `Manifest` + inline resolution | manifest source (bundled object vs. file) |
+| Frame publish | *(absent)* | `HostLoop.pump` + `VignetteHost` | transport frame mapping (coalesce vs. datagram) |
+| Error class | single fatal path | inline containment (peer-fault vs sim-fatal) | none — identical everywhere |
 
 The rest of this document takes each shared unit in turn.
 
@@ -76,68 +87,74 @@ Because it is clock-free and side-effect-free (it plans; the loop calls the vign
 
 ## 4. Manifest & resolution
 
-Part I §3 makes hosts *resolve* named vignettes against a manifest. This replaces the abstract `resolveInitPayload` hook with a shared, declarative path:
+Part I §3 makes hosts *resolve* named vignettes against a manifest. As built (`src/hosts/Manifest.ts`), an entry is config plus a source union — code
+form (`create`) or module form (`type`/`module`):
 
 ```ts
-interface VignetteManifestEntry {
-  version: string;
-  type: 'js' | 'wasm' | 'native';
-  module: string;                  // resolved relative to the manifest's base
-  fixedStepUs: number;
-  maxSubsteps: number;
-  maxPeers: number;
-  emptyGraceMs: number;
-  reconnectGraceMs: number;
-  maxPayloadBytes?: number;        // Part I §1.6; default 1 MiB
+interface VignetteConfig {
+  version: string; fixedStepUs: number; maxSubsteps: number; maxPeers: number;
+  reconnectGraceMs?: number; emptyGraceMs?: number; maxPayloadBytes?: number;
 }
-interface Manifest {
-  vignettes: Record<string, VignetteManifestEntry>;
-  allowClientModuleUrls?: boolean; // default false (Part I §3.7)
-}
-
-// Pure, host-agnostic. Throws the mapped Error code on failure.
-function resolveVignette(m: Manifest, id: string /* "restEasy" | "restEasy@1.2" */):
-  { entry: VignetteManifestEntry; instantiate(): Promise<Vignette> };
+type VignetteSource =
+  | { create(): Vignette | Promise<Vignette> }   // in-process factory (tests, bundled)
+  | { type: 'js' | 'wasm'; module: string };      // a module URL the host loads
+type ManifestEntry = VignetteConfig & VignetteSource;
+interface Manifest { vignettes: Record<string, ManifestEntry>; }
 ```
 
-- **Loading & validation** happen once at host construction. A malformed manifest is a host *startup* failure (fail fast), never a per-session `Error` — the manifest is operator input, not peer input.
-- **Resolution is pure and shared.** Unknown id → the error that becomes `Error(UnknownVignette)`; version-mismatch handling lives here so every host agrees.
-- **`vignetteFactory` entries are manifest entries in code form.** The existing `vignetteFactory` option becomes an in-memory manifest entry whose `instantiate()` calls the factory — so `LocalVignetteHost` and the remote host consume one format (test plan SES-06), and there is no separate "programmatic" code path to test.
-- **Dev-mode URL provisioning** (Part I §3.7) is one branch inside resolution, gated by `allowClientModuleUrls`; it produces an entry with `module = <client URL>` and otherwise flows identically.
+- **Resolution is an inline lookup.** `VignetteHost.handleInit` does
+  `manifest.vignettes[init.vignetteId]`; unknown id → `Error(UnknownVignette)`.
+  There is no separate `resolveVignette` function and no `@version` parsing yet.
+- **Module loading is framework-owned:** `loadVignetteModule` imports a module-form
+  entry and adapts it (wasm → `createWasmInstance`; js → class/factory). Code-form
+  entries call `create()` directly — one format for tests and production (SES-06).
+- **Dev-mode URL provisioning** (`allowClientModuleUrls`, Part I §3.7) is not built.
 
-The per-host adapter is only *where the manifest object comes from*: bundled with the app (LocalVignetteHost), read from a config file (remote server), or handed in programmatically (tests).
+The per-host adapter is only *where the manifest object comes from*: passed to
+`runWorkerHost` (worker), returned by `SessionManager`'s `manifestFor` (server),
+or handed in by tests.
 
 ---
 
 ## 5. `PeerRegistry` and the byte-pipe seam
 
-Part I §3.4 replaces the single `setSendBytes` sink with a peer set. The reference hosts keep the existing byte-pipe abstraction (`send` / `onBytes`, the `Transport`/`BytePeer` seam) and **multiply** it:
+Part I §3.4 gives the host a peer set over the byte-pipe abstraction (`send` /
+`onBytes`, the `Transport`/`BytePeer` seam). As built (`src/hosts/PeerRegistry.ts`):
 
 ```ts
 interface BytePeer { send(bytes: Uint8Array): void; onBytes(cb: (b: Uint8Array) => void): () => void; }
 
 class PeerRegistry {
-  attachPeer(clientId: number, pipe: BytePeer): void;   // replaces setSendBytes
-  detachPeer(clientId: number): void;                   // transport gone (may be reconnect)
-  mint(): number;                                       // next id, 1-based; skips 0 / 0xFFFF; never reuses within session
-  retire(clientId: number): void;                       // post-Leave / evict / grace-expiry
-  route(targetId: number, bytes: Uint8Array): void;     // 0 = broadcast to attached; else unicast-or-drop
+  mint(): number;                                    // next id, 1-based; skips 0 / 0xFFFF; never reuses within session
+  attach(clientId: number, pipe: BytePeer): void;    // bind (or rebind, for reconnect)
+  detach(clientId: number): void;                    // transport gone (leave/evict/reconnect gap)
+  route(targetId: number, bytes: Uint8Array): void;  // 0 = broadcast to attached; else unicast-or-drop
+  isAttached(clientId: number): boolean;
   readonly attachedCount: number;
 }
 ```
 
-Responsibilities the registry centralizes so every host behaves identically:
+- **Identity (Part I §1.3).** The host binds a minted `clientId` to a connection
+  (`Conn.clientId` in `VignetteHost`); inbound App delivery uses that bound id as
+  the sender and **ignores** the decoded wire `clientId`. So the host, not the
+  wire, is the source of identity truth (the "stamping" is host-side, not a step
+  inside `PeerRegistry`).
+- **Routing (Part I §1.3).** `route(0, …)` fans out to all *attached* pipes;
+  `route(k, …)` sends to k's pipe or **silently drops** if k is unattached or
+  mid-reconnect-detached. No per-peer buffering (Part I §3.3).
+- **Id lifecycle (Part I §3.4).** Monotonic minting from 1; ids are never reused
+  within the session (retirement is just `detach` + never re-minting).
+- **Reconnect rebind (Part I §3.3).** On a transport drop the host keeps the id
+  live (no `peerLeft`) while `reconnectGraceMs` runs; a valid resume Join
+  `attach`es the same id without a `peerLeft`/`peerJoined` cycle. Grace expiry →
+  `detach` + `peerLeft(id, TimedOut)`.
 
-- **Identity stamping (Part I §1.3).** On inbound App/Frame envelopes, the registry overwrites `clientId` with the true id bound to the receiving pipe. Peers cannot self-assign; the registry, not the wire, is the source of truth.
-- **Routing (Part I §1.3).** `route(0, …)` fans out to all *attached* pipes; `route(k, …)` sends to k's pipe or **silently drops** if k is unattached, retired, or mid-reconnect-detached. No per-peer buffering (Part I §3.3).
-- **Id lifecycle (Part I §3.4).** Monotonic minting from 1; retired ids are never reused within the session; id exhaustion is sim-fatal.
-- **Reconnect rebind (Part I §3.3).** `detachPeer` marks the id detached but keeps it live (no `peerLeft`) while its `reconnectGraceMs` timer runs; a valid resume `attachPeer` on the same id rebinds without a `peerLeft`/`peerJoined` cycle. Grace expiry → `retire` + `peerLeft(id, TimedOut)`.
-
-`attachPeer(clientId, pipe)` / `detachPeer(clientId)` become the new host↔transport interface method pair, superseding `VignetteHost.setSendBytes`. The `Transport` interface itself is unchanged; each transport attachment is surfaced to the registry as one `BytePeer`.
+The host↔transport method is `VignetteHost.connect(pipe): PeerConnection`; each
+attachment is one `BytePeer`.
 
 ---
 
-## 6. `FramePublisher`
+## 6. Frame publication (in `HostLoop` / `VignetteHost`)
 
 The Frame channel (Part I §1.4) plumbing the reference hosts share:
 
@@ -165,37 +182,39 @@ Because the dispatcher is shared, the JS-vs-WASM difference (a JS `handleMessage
 
 Everything above is written once. The genuinely per-host code is thin and non-observable-by-contract:
 
-- **TS worker host (`LocalVignetteHost` + `VignetteBridgeWorker`):** the worker RPC framing (structured-clone control messages, transferred payload buffers) and the loopback `BytePeer`. The worker/host boundary stays as the TODO notes: worker owns session/RPC, host owns vignette lifecycle.
-- **Bun/Node remote host (`RemoteVignetteHost` + reference server):** WebSocket ⇄ `BytePeer` adapter, the session-keyed host map (host lifetime decoupled from socket lifetime, Part I §3.5 / SES-17), and frame coalescing on the socket.
+- **TS worker host (`runWorkerHost` + `messagePortBytePeer`):** `runWorkerHost` runs a `VignetteHost` inside a worker and bridges the `postMessage` port as a single loopback `BytePeer`. There is no separate RPC channel — the app on the other end speaks the ordinary envelope protocol (`src/hosts/workerHost.ts`).
+- **Bun/Node remote host (`SessionManager` + reference server):** `SessionManager` is the session-keyed host map (host lifetime decoupled from socket lifetime, Part I §3.5 / SES-17); `examples/remote-server.ts` bridges each WebSocket to a `BytePeer`. Frame coalescing exists as a test helper (`CoalescingPipe`), not yet wired into the WS transport.
 - **Native host (future):** a C host that `dlopen`s a vignette `.so` and speaks the envelope protocol over a socket, reusing the proven ring/frame ABI. Design pinned in [Native Host — Design Note](./native-host-design.md); build when a no-JS-runtime need is concrete.
 
 ---
 
 ## 9. Mapping to the conformance harness
 
-The decomposition exists to make `runHostConformance(makeHost, opts)` (test plan §6) trivial to satisfy:
+The decomposition exists to make `hostConformanceCases(makeHost)` (test plan §6) trivial to satisfy:
 
-| Shared unit | Makes these test areas host-agnostic |
+| Unit (some inline in `VignetteHost`) | Makes these test areas host-agnostic |
 |---|---|
 | `HostLoop` + `Clock` | all of ABI (virtual clock, `pump()`), the whole battery's determinism |
 | `FixedStepEngine` | ABI-07..14 (stepping), DET-05 (overload) |
-| `Manifest`/`resolveVignette` | SES-01..06, SES-21 |
-| `PeerRegistry` | ENV-10..14, SES-08..16, SES-22 |
-| `FramePublisher` | ENV-17..20, ABI-20..22 |
-| containment dispatch | ABI-15..19 |
+| `Manifest` + inline resolution | SES-01..06, SES-21 |
+| `PeerRegistry` + host-side identity | ENV-10..14, SES-08..16 |
+| frame publish (`HostLoop`/`VignetteHost`) | ENV-17..20, ABI-20..22 |
+| containment (inline in `VignetteHost`) | ABI-15..19 |
 
-A new host reaches the full battery by supplying: a `Clock`, a manifest source, a `BytePeer` factory for its transport, and a timer driver. Cross-host determinism (DET-01..04) then holds because the observable core — loop, stepping, registry, publisher, containment — is *the same code* under each adapter.
+A new host reaches the full battery by supplying `makeHost` — a factory returning a `ConformanceHost` (`connect`/`pump`/`poll`/`whenIdle`/`getState`). Cross-host determinism (DET-01..04) then holds because the observable core — loop, stepping, registry, frame publish, containment — is *the same code* under each adapter.
 
 ---
 
-## Appendix: relationship to current `main` (implementation order hint)
+## Appendix: implementation status (complete)
 
-The Part I Appendix A deltas map onto this decomposition roughly in dependency order:
+The v2 build landed all of this:
 
-1. Envelope v2 (standalone; no host changes) — unblocks everything.
-2. `FixedStepEngine` extracted from `BaseVignetteHost.startTickLoop`, with the debt→drop-time change and the injectable `Clock`. Independently unit-testable first.
-3. ABI extension (`senderId`, `peerJoined`/`peerLeft`, targeted outbox, frame accessors) across `Vignette` + `vf_*` + `wg_vf.h`.
-4. `PeerRegistry` replacing `setSendBytes`; `attachPeer`/`detachPeer` on `VignetteHost`.
-5. `Manifest`/`resolveVignette` replacing `resolveInitPayload`.
-6. `FramePublisher` + containment dispatch.
-7. Per-host adapters rewired (§8); remote server host-lifetime decoupling last.
+1. **Envelope v2** — `src/envelope/`.
+2. **`FixedStepEngine`** (debt→drop-time) + injectable **`Clock`** — `src/hosts/`.
+3. **ABI extension** (`senderId`, `peerJoined`/`peerLeft`, targeted outbox, frame accessors) across `Vignette` + the `vf_*` C ABI (`wg_vf.h`/`wg_vf.c`).
+4. **`PeerRegistry`** + `VignetteHost.connect(pipe)` (`attach`/`detach` internally).
+5. **Manifest resolution** — inline in `VignetteHost.handleInit` (+ `loadVignetteModule`).
+6. **Frame publish + containment** — inline in `HostLoop`/`VignetteHost`.
+7. **Per-host adapters** (`runWorkerHost`, `SessionManager`, `examples/remote-server.ts`).
+
+Only open item: the dev-mode `allowClientModuleUrls` client-URL branch (Part I §3.7).

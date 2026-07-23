@@ -86,7 +86,7 @@ Today the host is TypeScript, deployed on Bun for backends.
 | Import | What |
 |---|---|
 | `@whirlinggizmo/wg-vf` | vignettes, hosts, envelope, transports, manifest |
-| `@whirlinggizmo/wg-vf/testing` | `VirtualClock`, `HostPeer`, loopback/lossy pipes, reference vignettes, `runHostConformance` |
+| `@whirlinggizmo/wg-vf/testing` | `VirtualClock`, `HostPeer`, loopback/lossy pipes, reference vignettes, `hostConformanceCases` |
 | `@whirlinggizmo/wg-vf/native/*` | `wg_vf.h`, `wg_vf.c` for WASM/native authoring |
 
 ## Docs

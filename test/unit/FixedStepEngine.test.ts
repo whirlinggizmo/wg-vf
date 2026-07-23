@@ -1,6 +1,6 @@
 // Conformance: fixed-step contract (docs/architecture-part1.md §2.3, test plan
 // §2.2 ABI-07..12) at the engine level. These are the determinism core; the
-// host-driven variants (via runHostConformance) land with the v2 host.
+// host-driven variants (via hostConformanceCases) land with the v2 host.
 
 import { describe, expect, test } from 'bun:test';
 

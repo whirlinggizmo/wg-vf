@@ -6,7 +6,7 @@
 //
 // Still to land (see docs/TODO.md): LossyPipe (T-LOSSY), reference vignettes
 // echo/counter/chaos (T-VIG-*), the script runner (T-SCRIPT), golden fixtures
-// (T-GOLD), and runHostConformance() — the last needs the v2 host (Phase 4).
+// (T-GOLD), and hostConformanceCases() — the last needs the v2 host (Phase 4).
 
 export { VirtualClock } from './VirtualClock.js';
 export {

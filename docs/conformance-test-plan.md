@@ -1,15 +1,19 @@
 # wg-vf Conformance Test Plan
 
-**Status:** Draft 0.1 · **Companion to:** Architecture Part I (Contracts) Draft 0.1
-**Convention:** Test IDs are `AREA-NN` and reference the contract clause they verify. Each ID is intended to become one test (or one tightly-scoped describe block). `MUST`-level assertions are release-blocking; `SHOULD`-level are flagged `[S]`.
+**Status:** Implemented — the battery is green (84 tests). · **Companion to:** Architecture Part I (Contracts).
+**Convention:** Test IDs are `AREA-NN` and reference the contract clause they verify; each maps to a test (or a tightly-scoped describe block). `MUST`-level assertions are release-blocking; `SHOULD`-level are flagged `[S]`. Still outstanding: ABI-01..06 (call discipline — covered implicitly by op-chain serialization), SES-22, PAR-03/04, and the ENV-09 nightly-CI gate.
 
 ---
 
-## 0. Test Infrastructure (prerequisites, not tests)
+## 0. Test Infrastructure
 
-These must exist before the suite can be written. They are exported from `@whirlinggizmo/wg-vf/testing`.
+Exported from `@whirlinggizmo/wg-vf/testing`: T-CLOCK (`VirtualClock`), T-PIPE
+(`createLoopbackPipe`), T-LOSSY (`lossyPipe`), the reference vignettes
+(`EchoVignette`/`CounterVignette`/`ChaosVignette`), T-SCRIPT (`runScript`); plus
+T-VIG-PARITY (C `test/wasm/*.c` built via `npm run test:build`) and T-GOLD
+(`test/fixtures/envelope-golden.json`).
 
-- **T-CLOCK** — Injectable clock. `BaseVignetteHost` takes a `nowUs()` provider; a `VirtualClock` supports `advance(dtUs)`. The host loop must be manually drivable (`pump()` runs exactly one loop iteration) so no test depends on timers or sleeps.
+- **T-CLOCK** — Injectable clock. the host loop takes a `Clock` (`nowUs()`) provider; a `VirtualClock` supports `advance(dtUs)`. The host loop must be manually drivable (`pump()` runs exactly one loop iteration) so no test depends on timers or sleeps.
 - **T-PIPE** — `LoopbackBytePipe`: an in-process `BytePeer` pair (`a.send` → `b.onBytes` synchronously or via microtask, configurable). Also the exported single-player transport.
 - **T-LOSSY** — `LossyPipe` decorator: configurable drop/reorder/duplicate for Frame-channel testing.
 - **T-VIG-ECHO** — Reference vignette `echo`: every `handleMessage(sender, bytes)` emits outbox `(target=sender, bytes)` and a broadcast copy prefixed with sender id.
@@ -125,7 +129,7 @@ These must exist before the suite can be written. They are exported from `@whirl
 | SES-03 | Manifest `fixedStepUs`/`maxSubsteps` are the values the stepping contract honors (re-run ABI-07/10 with a nonstandard manifest entry, e.g. 20000µs/2). |
 | SES-04 | With `allowClientModuleUrls: false` (default), v1-style URL provision payload → rejected (`Error(UnknownVignette)`); no module fetch is attempted (instrument the loader). |
 | SES-05 | With `allowClientModuleUrls: true`, URL provision loads; all other contracts (identity, stepping, containment) hold identically — run a slice of the harness in this mode. |
-| SES-06 | LocalVignetteHost consumes the same manifest format and passes SES-01..03 (provisioning symmetry). |
+| SES-06 | `VignetteHost` (worker/local) consumes the same manifest format and passes SES-01..03 (provisioning symmetry). |
 
 ### 3.2 Verbs & state machine (§3.3)
 
@@ -166,8 +170,8 @@ Same vignette + same T-SCRIPT ⇒ byte-identical observable behavior across host
 
 | ID | Assertion |
 |---|---|
-| DET-01 | `counter` (TS) under LocalVignetteHost, driven by script S1 (3 peers, join/leave churn, 10k steps, message bursts): record full outbox stream (target, bytes), frame stream (seq, tick, bytes), and stepIndex trace. |
-| DET-02 | Same vignette + S1 under RemoteVignetteHost over LoopbackBytePipe → all three traces byte-identical to DET-01. |
+| DET-01 | `counter` (TS) under `VignetteHost`, driven by script S1 (3 peers, join/leave churn, 10k steps, message bursts): record full outbox stream (target, bytes), frame stream (seq, tick, bytes), and stepIndex trace. |
+| DET-02 | Same vignette + S1 over a byte-copy transport wrapper → all three traces byte-identical to DET-01. |
 | DET-03 | `counter` (WASM) replaces TS under both hosts → traces byte-identical to DET-01 (this is the ABI-parity + determinism composite; requires the vignette to be written deterministically — no float ambience, fixed iteration orders). |
 | DET-04 | Frame-channel loss (LossyPipe, 30% drop + reorder) changes *received* frames only: outbox/App traces and sim state remain identical to DET-01 (loss-tolerance of the frame channel does not feed back into the sim). |
 | DET-05 | [S] Determinism under overload: script includes chaos busy-loop segments; drop-time policy yields identical stepIndex↔wall-time mapping across hosts under virtual clock. |
@@ -186,8 +190,8 @@ Same vignette + same T-SCRIPT ⇒ byte-identical observable behavior across host
 
 ## 6. Suite Organization & Gates
 
-- **Harness entry:** `runHostConformance(makeHost: (manifest) => VignetteHost, opts)` executes ENV-10..24, ABI-01..21, SES-01..22 against any host. New hosts get the full battery for the cost of one factory function.
-- **CI gates:** all MUST tests green on: LocalVignetteHost(js), LocalVignetteHost(wasm), RemoteVignetteHost(loopback). DET-01..04 green. ENV-09 fuzz runs nightly with a fixed seed corpus + fresh seeds; failures check in the reproducing seed.
+- **Harness entry:** `hostConformanceCases(makeHost: (manifest) => VignetteHost, opts)` executes ENV-10..24, ABI-01..21, SES-01..22 against any host. New hosts get the full battery for the cost of one factory function.
+- **CI gates:** all MUST tests green driving `VignetteHost` (via `hostConformanceCases`) with js, wasm, and native vignettes over loopback. DET-01..04 green. ENV-09 fuzz runs nightly with a fixed seed corpus + fresh seeds; failures check in the reproducing seed.
 - **Version discipline:** golden fixtures and test vectors are versioned with the contract doc; a change to any golden byte requires a doc delta in the same PR (envelope changes can never be silent).
 - **Definition of done for the standalone phase** (per the extraction timebox): full battery green on the three host configurations + DET suite green + PAR-05 native build green. Then Rest Easy's walking-skeleton sim becomes conformance consumer #4, and further framework work requires a Rest Easy-driven need.
 

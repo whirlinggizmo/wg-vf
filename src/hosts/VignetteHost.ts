@@ -4,7 +4,7 @@
 // op, publishes frames, contains errors (peer-fault vs sim-fatal), and owns the
 // session lifetime (reconnect grace + empty-session teardown).
 //
-// This is the unit `runHostConformance` drives. The worker and WebSocket
+// This is the unit `hostConformanceCases` drives. The worker and WebSocket
 // adapters (Phase 7) wrap it by supplying BytePeers. Lifetime timers are
 // evaluated on pump() (and on the explicit poll()) against the injected clock,
 // so they fire deterministically under VirtualClock with no wall-clock time.

@@ -2,7 +2,7 @@
 
 **Status:** Draft 0.1 · **Scope:** Chapters 1–3 (normative). Reference host implementations (TS worker host, Bun remote host, native host) are non-normative and covered in [Architecture Part II: Reference Host Scaffolding](./architecture-part2.md).
 
-wg-vf runs self-contained **Vignette** modules behind a host boundary. The app talks to a hosted vignette through the `VignetteBridge` API; the vignette talks to the world exclusively through the contracts in this document. The framework's core promise:
+wg-vf runs self-contained **Vignette** modules behind a host boundary. The app talks to a hosted vignette by exchanging wire envelopes over a byte transport (`BytePeer`); the vignette talks to the world exclusively through the contracts in this document. The framework's core promise:
 
 > **An unchanged vignette behaves identically regardless of where and in what language it is hosted** — a JS module in a worker, a WASM module in a worker or a Bun/Node process, or a native library in a standalone service.
 
@@ -186,7 +186,7 @@ Every host — local worker host included — is constructed with a manifest (a 
 
 The manifest is the single home for **per-sim host policy**: step configuration, peer limits, lifetime rules, payload bounds. The ABI guarantees of chapter 2 are stated as "the host honors what the manifest declares," which keeps sim-specific numbers out of the framework.
 
-The same manifest format serves both host families. Rest Easy's app bundle ships a manifest; single-player is `LocalVignetteHost` resolving `restEasy` from it over the loopback. The production resolution path is therefore exercised by the dogfood on every run.
+The same manifest format serves both host families. Rest Easy's app bundle ships a manifest; single-player runs the same `VignetteHost` inside a worker (via `runWorkerHost`), resolving `restEasy` from the bundled manifest over a loopback `BytePeer`. The production resolution path is therefore exercised by the dogfood on every run.
 
 ### 3.3 Session verbs
 
@@ -209,7 +209,7 @@ The host owns a peer registry keyed by `clientId`:
 - Retired ids (post-Leave, post-grace-expiry, post-eviction) MUST NOT be reused within the session. u16 gives 65k joins per session before exhaustion, which is ample for room-scale sessions; id-exhaustion is sim-fatal.
 - The registry, not the wire, is the source of identity truth (§1.3).
 
-This replaces the single `setSendBytes` binding in the `VignetteHost` interface with `attachPeer(clientId, pipe)` / `detachPeer(clientId)` over the existing byte-pipe (`send`/`onBytes`) abstraction — the transport seam is unchanged; it is multiplied.
+The host exposes `connect(pipe): PeerConnection` as its transport seam; identity is minted when the peer sends Init/Join, and the internal `PeerRegistry` binds it via `attach(clientId, pipe)` / `detach(clientId)` over the byte-pipe (`send`/`onBytes`) abstraction — one `BytePeer` per transport attachment.
 
 ### 3.5 Lifetime
 
@@ -234,13 +234,14 @@ With `allowClientModuleUrls: true`, a host additionally accepts the v1-style pro
 
 ---
 
-## Appendix A: Migration deltas from current `main`
+## Appendix A: v1 → v2 changelog (completed)
 
-For implementation planning, the complete list of changes this document implies against the current codebase:
+v1 was removed and rebuilt as v2; all of the following landed. (The one genuinely
+open item is the dev-mode `allowClientModuleUrls` client-URL escape hatch, §3.7.)
 
-1. Envelope v2: header 8 → 12 bytes; `channel` replaces `messageKind`; add `clientId`, `flags`; binary `Ready`/`Error` payloads; new `Join`/`Leave` system types; error codes.
-2. `Vignette` ABI: `senderId` on `handleMessage`; `peerJoined`/`peerLeft`; targeted outbox entries; frame-channel accessors. Mirrored in `vf_*` WASM exports and the new `wg_vf.h`.
-3. `BaseVignetteHost`: peer registry replacing single `sendBytes`; state machine gains Join path against READY; peer-fault vs sim-fatal error split; accumulator clamp after `maxSubsteps`; App delivery ordered between loop iterations.
-4. Hosts constructed with a manifest; `resolveInitPayload` reimplemented as manifest resolution; URL path gated behind `allowClientModuleUrls`.
-5. `RemoteVignetteHost`: peer-originated `Shutdown` demoted to leave-request; per-peer attach/detach wired to the peer registry.
-6. Reference remote server: host lifetime decoupled from socket lifetime (host map keyed by session, sockets attach/detach); WebSocket frame coalescing for the Frame channel.
+1. **Envelope v2** — header 8 → 12 bytes; `channel` replaces `messageKind`; `clientId` + `flags` added; binary `Ready`/`Error`/`Join`; new `Join`/`Leave` types; error codes. (`src/envelope/`)
+2. **`Vignette` ABI** — `senderId` on `handleMessage`; `peerJoined`/`peerLeft`; targeted outbox; frame accessors. Mirrored in the `vf_*` C ABI (`wg_vf.h`/`wg_vf.c`). (`src/vignettes/`)
+3. **Host core** (`VignetteHost`, replacing v1's `BaseVignetteHost`): peer registry; Join-against-READY; peer-fault vs sim-fatal split; drop-time accumulator clamp; App delivery ordered between loop iterations.
+4. **Manifest resolution** — hosts constructed with a `Manifest`; the id is resolved at Provision (inline in `handleInit`). *Open:* the `allowClientModuleUrls` URL branch.
+5. **Peer-originated `Shutdown` demoted to a leave request**; per-peer `connect`/`disconnect` wired to the registry (in `VignetteHost`, replacing v1's `RemoteVignetteHost`).
+6. **Reference server** — host lifetime decoupled from socket lifetime via `SessionManager` (session-keyed host map). *Note:* WebSocket frame coalescing exists as a test helper (`CoalescingPipe`), not yet wired into the WS transport.

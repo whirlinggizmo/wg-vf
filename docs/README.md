@@ -8,7 +8,7 @@ in whatever language it is hosted.
 
 - **Writing a vignette?** → [Vignette Author Guide](./vignette-author-guide.md) —
   the contract, ABI, channels, determinism rules, and copy-paste examples (TS and
-  Nim/WASM/native). Self-contained; no framework internals required.
+  C — for WASM/native). Self-contained; no framework internals required.
 
 ## The contract (normative)
 

@@ -1,4 +1,4 @@
-// runHostConformance battery (test plan §6). A host-agnostic set of ENV/ABI/SES
+// hostConformanceCases battery (test plan §6). A host-agnostic set of ENV/ABI/SES
 // cases driven through a factory. Any host that satisfies ConformanceHost gets
 // the full battery for the cost of one `makeHost` function.
 //

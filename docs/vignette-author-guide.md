@@ -138,7 +138,7 @@ export default class MyVignette extends BaseVignette {
   override peerLeft(clientId: number, reason: PeerLeftReason): void {}
 
   // Return your current frame (or null for "no frame yet"). Snapshot by value.
-  override currentFrame(): FrameView {
+  override currentFrame(): FrameView | null {
     return { seq: this.frameSeq, body: this.frame.slice() };
   }
 }
@@ -326,4 +326,4 @@ peer.frames();                 // Frame envelopes (latest-wins)
 - [ ] Treat `frameId`/`stepIndex`/`frameSeq` as wrapping u32.
 - [ ] No wall-clock, no unseeded randomness (if you want determinism).
 - [ ] `currentFrame()` snapshots by value; `frameSeq` advances only on a step.
-- [ ] Default-export a class/factory (TS) or `registerVignetteHandlers` (native).
+- [ ] Default-export a class/factory (TS), or register handlers with `wg_vf_register` from a constructor (native).

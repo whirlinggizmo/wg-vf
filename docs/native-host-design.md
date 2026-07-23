@@ -102,7 +102,7 @@ wrapping — matching the ABI's time model.
 ## 6. Validation — the cross-host crown jewel
 
 A native host is *correct* iff it passes the same conformance battery as the TS
-host. The cleanest proof drives `runHostConformance`'s scenarios **over a
+host. The cleanest proof drives `hostConformanceCases`'s scenarios **over a
 socket** against the running native host (the "WS/socket conformance driving"
 item in the TODO): same ENV/ABI/SES/DET assertions, a second independent host
 implementation — the strongest possible statement of the framework's promise.
