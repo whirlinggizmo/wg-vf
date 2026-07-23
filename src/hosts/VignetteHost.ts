@@ -21,6 +21,7 @@ import {
 } from './Manifest.js';
 import { loadVignetteModule } from './loadVignetteModule.js';
 import type { BytePeer } from '../transports/BytePeer.js';
+import { byteEnvelopePeer, type EnvelopePeer } from '../transports/EnvelopePeer.js';
 import {
   PeerLeftReason,
   SimFatalError,
@@ -38,14 +39,9 @@ import {
 import {
   Channel,
   DEFAULT_MAX_PAYLOAD_BYTES,
-  EnvelopeDecodeError,
   ErrorCode,
   SystemType,
-  decodeEnvelope,
-  encodeAppEnvelope,
-  encodeFrameEnvelope,
-  encodeSystemEnvelope,
-  errorCodeForDecodeReason,
+  encodeFramePayload,
   type Envelope,
 } from '../envelope/index.js';
 import {
@@ -81,7 +77,7 @@ export interface PeerConnection {
 
 class Conn {
   clientId: number | null = null;
-  constructor(readonly pipe: BytePeer) {}
+  constructor(readonly pipe: EnvelopePeer) {}
 }
 
 interface PendingReconnect {
@@ -168,12 +164,24 @@ export class VignetteHost {
     return this.opChain;
   }
 
-  /** Attach a transport. Identity is assigned when it sends Init/Join. */
+  /**
+   * Attach a raw byte transport — the host owns the wire (de)serialization,
+   * running it on this transport's own thread. Identity is assigned on Init/Join.
+   */
   connect(pipe: BytePeer): PeerConnection {
+    return this.connectEnvelopes(byteEnvelopePeer(pipe, () => this.maxPayloadBytes));
+  }
+
+  /**
+   * Attach a transport that already speaks structured {@link Envelope}s — the
+   * wire (de)serialization happens elsewhere (e.g. on the IO thread), so the sim
+   * thread never touches the byte format.
+   */
+  connectEnvelopes(pipe: EnvelopePeer): PeerConnection {
     const conn = new Conn(pipe);
     this.conns.add(conn);
-    const off = pipe.onBytes((bytes) => {
-      void this.run(() => this.onInbound(conn, bytes));
+    const off = pipe.onEnvelope((env) => {
+      void this.run(() => this.dispatch(conn, env));
     });
     return {
       disconnect: () => {
@@ -213,18 +221,7 @@ export class VignetteHost {
 
   // --- inbound dispatch ----------------------------------------------------
 
-  private async onInbound(conn: Conn, bytes: Uint8Array): Promise<void> {
-    let env: Envelope;
-    try {
-      env = decodeEnvelope(bytes, { maxPayloadBytes: this.maxPayloadBytes });
-    } catch (err) {
-      if (err instanceof EnvelopeDecodeError) {
-        this.sendError(conn.pipe, errorCodeForDecodeReason(err.reason), err.message);
-        return;
-      }
-      throw err;
-    }
-
+  private async dispatch(conn: Conn, env: Envelope): Promise<void> {
     switch (env.channel) {
       case Channel.System:
         await this.handleSystem(conn, env);
@@ -252,7 +249,7 @@ export class VignetteHost {
         await this.handleLeave(conn);
         return;
       case SystemType.Ping:
-        conn.pipe.send(encodeSystemEnvelope(SystemType.Pong, env.payload));
+        conn.pipe.send({ channel: Channel.System, systemType: SystemType.Pong, clientId: 0, payload: env.payload });
         return;
       default:
         // Ready/Error/Pong are host→peer; ignore if a peer sends them.
@@ -486,7 +483,12 @@ export class VignetteHost {
     this.state = 'SHUTTING_DOWN';
     this.loop?.stop();
     this.emptyStartUs = null;
-    this.registry.route(0, encodeSystemEnvelope(SystemType.Shutdown));
+    this.registry.route(0, {
+      channel: Channel.System,
+      systemType: SystemType.Shutdown,
+      clientId: 0,
+      payload: new Uint8Array(0),
+    });
     // A graceful teardown gives the vignette a real chance to persist: await
     // shutdown() (which may await a flush) inline, so a single whenIdle() waits
     // for the durable write. (Contrast simFatal, which stays fire-and-forget — a
@@ -551,13 +553,12 @@ export class VignetteHost {
     }
     this.state = 'SHUTTING_DOWN';
     this.loop?.stop();
-    this.registry.route(
-      0,
-      encodeSystemEnvelope(
-        SystemType.Error,
-        encodeErrorPayload({ code: ErrorCode.Generic, message: errMessage(err) }),
-      ),
-    );
+    this.registry.route(0, {
+      channel: Channel.System,
+      systemType: SystemType.Error,
+      clientId: 0,
+      payload: encodeErrorPayload({ code: ErrorCode.Generic, message: errMessage(err) }),
+    });
     try {
       // Fire shutdown; a throw here cannot make things more fatal.
       void this.vignette?.shutdown();
@@ -588,34 +589,41 @@ export class VignetteHost {
       if (payload.length > this.maxPayloadBytes) {
         throw new OversizedEmissionError(payload.length, this.maxPayloadBytes);
       }
-      this.registry.route(targetId, encodeAppEnvelope(payload, targetId));
+      this.registry.route(targetId, { channel: Channel.App, systemType: 0, clientId: targetId, payload });
     }
   }
 
   private publishFrame(frame: FrameView, sourceTick: number): void {
-    this.registry.route(0, encodeFrameEnvelope(frame.body, frame.seq, sourceTick, 0));
+    this.registry.route(0, {
+      channel: Channel.Frame,
+      systemType: 0,
+      clientId: 0,
+      payload: encodeFramePayload(frame.body, frame.seq, sourceTick),
+    });
   }
 
-  private sendReady(pipe: BytePeer, clientId: number, resumeToken: Uint8Array): void {
-    pipe.send(
-      encodeSystemEnvelope(
-        SystemType.Ready,
-        encodeReadyPayload({
-          vignetteId: this.provisionedId!,
-          version: this.provisioned!.version,
-          clientId,
-          fixedStepUs: this.provisioned!.fixedStepUs,
-          resumeToken,
-        }),
+  private sendReady(pipe: EnvelopePeer, clientId: number, resumeToken: Uint8Array): void {
+    pipe.send({
+      channel: Channel.System,
+      systemType: SystemType.Ready,
+      clientId,
+      payload: encodeReadyPayload({
+        vignetteId: this.provisionedId!,
+        version: this.provisioned!.version,
         clientId,
-      ),
-    );
+        fixedStepUs: this.provisioned!.fixedStepUs,
+        resumeToken,
+      }),
+    });
   }
 
-  private sendError(pipe: BytePeer, code: ErrorCode, message: string): void {
-    pipe.send(
-      encodeSystemEnvelope(SystemType.Error, encodeErrorPayload({ code, message })),
-    );
+  private sendError(pipe: EnvelopePeer, code: ErrorCode, message: string): void {
+    pipe.send({
+      channel: Channel.System,
+      systemType: SystemType.Error,
+      clientId: 0,
+      payload: encodeErrorPayload({ code, message }),
+    });
   }
 
   private newToken(): Uint8Array {

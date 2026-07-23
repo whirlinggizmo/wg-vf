@@ -4,7 +4,8 @@
 // (Part I §1.3) — there is no per-peer resend queue.
 
 import { CLIENT_ID_RESERVED } from '../envelope/types.js';
-import type { BytePeer } from '../transports/BytePeer.js';
+import type { Envelope } from '../envelope/index.js';
+import type { EnvelopePeer } from '../transports/EnvelopePeer.js';
 
 export class PeerIdExhaustedError extends Error {
   constructor() {
@@ -16,7 +17,7 @@ export class PeerIdExhaustedError extends Error {
 export class PeerRegistry {
   // Next id to mint. Starts at 1; 0 = none/broadcast, 0xFFFF reserved.
   private nextId = 1;
-  private readonly attached = new Map<number, BytePeer>();
+  private readonly attached = new Map<number, EnvelopePeer>();
 
   /** Mint a fresh, never-before-used id for this session. */
   mint(): number {
@@ -27,7 +28,7 @@ export class PeerRegistry {
   }
 
   /** Bind (or rebind, for reconnect) an id to a transport. */
-  attach(clientId: number, pipe: BytePeer): void {
+  attach(clientId: number, pipe: EnvelopePeer): void {
     this.attached.set(clientId, pipe);
   }
 
@@ -49,20 +50,20 @@ export class PeerRegistry {
   }
 
   /**
-   * Route peer-bound bytes. `targetId = 0` broadcasts to all attached peers;
+   * Route a peer-bound envelope. `targetId = 0` broadcasts to all attached peers;
    * nonzero unicasts to that peer or is silently dropped if it has no live
    * transport (Part I §1.3). Never buffers.
    */
-  route(targetId: number, bytes: Uint8Array): void {
+  route(targetId: number, envelope: Envelope): void {
     if (targetId === 0) {
-      // A broadcast shares one buffer across peers, so a transport may only take
-      // it when there's exactly one recipient (e.g. the single-player worker path).
+      // A broadcast shares one envelope across peers, so a transport may only
+      // take its buffer when there's exactly one recipient (the sole-player path).
       const transferable = this.attached.size === 1;
       for (const pipe of this.attached.values()) {
-        pipe.send(bytes, { transferable });
+        pipe.send(envelope, { transferable });
       }
       return;
     }
-    this.attached.get(targetId)?.send(bytes, { transferable: true }); // unicast: sole recipient
+    this.attached.get(targetId)?.send(envelope, { transferable: true }); // unicast: sole recipient
   }
 }

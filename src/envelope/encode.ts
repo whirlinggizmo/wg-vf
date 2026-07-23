@@ -61,6 +61,20 @@ export function encodeAppEnvelope(payload: Uint8Array, clientId = 0): Uint8Array
 }
 
 /**
+ * Build the Frame *payload* — the framework-owned `frameSeq: u32,
+ * sourceTick: u32` prefix (Part I §1.4) followed by the opaque body. This is the
+ * envelope payload; wrap it as `{ channel: Frame, payload }` to frame it.
+ */
+export function encodeFramePayload(body: Uint8Array, frameSeq: number, sourceTick: number): Uint8Array {
+  const payload = new Uint8Array(FRAME_PREFIX_SIZE + body.length);
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  view.setUint32(0, frameSeq >>> 0, true);
+  view.setUint32(4, sourceTick >>> 0, true);
+  payload.set(body, FRAME_PREFIX_SIZE);
+  return payload;
+}
+
+/**
  * Encode a Frame envelope, prepending the framework-owned
  * `frameSeq: u32, sourceTick: u32` prefix (Part I §1.4) to the opaque body.
  */
@@ -70,10 +84,5 @@ export function encodeFrameEnvelope(
   sourceTick: number,
   clientId = 0,
 ): Uint8Array {
-  const payload = new Uint8Array(FRAME_PREFIX_SIZE + body.length);
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  view.setUint32(0, frameSeq >>> 0, true);
-  view.setUint32(4, sourceTick >>> 0, true);
-  payload.set(body, FRAME_PREFIX_SIZE);
-  return encodeEnvelope({ channel: Channel.Frame, clientId, payload });
+  return encodeEnvelope({ channel: Channel.Frame, clientId, payload: encodeFramePayload(body, frameSeq, sourceTick) });
 }

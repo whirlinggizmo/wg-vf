@@ -16,10 +16,15 @@ so socket jitter and connection churn can't stall the fixed-step loop. wg-vf's
   shape: **sim in a worker, IO on the "main" thread** (render for browser,
   sockets for server).
 
-What this *doesn't* yet do (a deliberate next step): envelope (de)serialization
-still happens in the worker, next to the sim — isolation is from socket IO and
-churn, not from framing. Moving serialization onto the IO thread ("transport owns
-encoding", below) is step 2.
+And serialization is off the sim thread too: the host works in structured
+`Envelope`s (the `EnvelopePeer` seam), and byte (de)serialization is a transport
+concern (`byteEnvelopePeer`) that runs wherever the transport runs. In the
+server, the **main thread decodes inbound socket bytes and encodes outbound**;
+the bridge carries structured envelopes; the worker's `SessionManager.connectEnvelopes`
+hands the host envelopes directly — so the sim thread never touches the wire
+format. `VignetteHost.connect(bytePeer)` still wraps with `byteEnvelopePeer` for
+the in-thread case (browser worker, tests), so where framing runs is just "which
+side wraps."
 
 
 The byte path copies payloads at a few points. This documents what's done, what's

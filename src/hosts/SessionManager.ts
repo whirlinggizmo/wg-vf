@@ -12,6 +12,7 @@ import { type Clock, SystemClock } from './Clock.js';
 import { VignetteHost, type PeerConnection } from './VignetteHost.js';
 import type { Manifest } from './Manifest.js';
 import type { BytePeer } from '../transports/BytePeer.js';
+import type { EnvelopePeer } from '../transports/EnvelopePeer.js';
 import type { DurableStore } from '../storage/VignetteStorage.js';
 
 export interface SessionManagerOptions {
@@ -50,6 +51,22 @@ export class SessionManager {
    * server is at `maxSessions` capacity for a new key.
    */
   connect(key: string, pipe: BytePeer): PeerConnection | null {
+    const host = this.hostFor(key);
+    return host ? host.connect(pipe) : null;
+  }
+
+  /**
+   * Like {@link connect}, but for a transport that already speaks structured
+   * envelopes — the wire (de)serialization runs elsewhere (e.g. the socket
+   * thread), so this thread's sim never touches the byte format.
+   */
+  connectEnvelopes(key: string, pipe: EnvelopePeer): PeerConnection | null {
+    const host = this.hostFor(key);
+    return host ? host.connectEnvelopes(pipe) : null;
+  }
+
+  /** Resolve (or create) the host for a key, honoring maxSessions. Null if refused. */
+  private hostFor(key: string): VignetteHost | null {
     // Drop any CLOSED hosts first, so a re-provision of a stale key works and the
     // capacity count reflects only live sessions.
     this.reap();
@@ -68,7 +85,7 @@ export class SessionManager {
       });
       this.hosts.set(key, host);
     }
-    return host.connect(pipe);
+    return host;
   }
 
   /** The live host for a key, if any (for tests/introspection). */

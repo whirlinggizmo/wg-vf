@@ -7,6 +7,16 @@
 
 import type { ServerWebSocket } from 'bun';
 
+import {
+  DEFAULT_MAX_PAYLOAD_BYTES,
+  EnvelopeDecodeError,
+  SystemType,
+  decodeEnvelope,
+  encodeEnvelope,
+  encodeErrorPayload,
+  encodeSystemEnvelope,
+  errorCodeForDecodeReason,
+} from '../src';
 import type { MainToWorker, WorkerToMain } from './remote-server-bridge';
 
 const port = Number(Bun.env.VF_HOST_PORT ?? 8787);
@@ -45,14 +55,14 @@ worker.addEventListener('message', (ev: MessageEvent<WorkerToMain>) => {
       ws.close(1013, 'backpressure: client too slow');
       return;
     }
-    ws.send(m.bytes);
+    ws.send(encodeEnvelope(m.env)); // frame on the IO thread
   } else if (m.t === 'close') {
     ws.close(m.code ?? 1000, m.reason);
     conns.delete(m.id);
   }
 });
 
-const toWorker = (m: MainToWorker) => worker.postMessage(m);
+const toWorker = (m: MainToWorker, transfer?: Transferable[]) => worker.postMessage(m, transfer ?? []);
 
 const server = Bun.serve<ConnData>({
   port,
@@ -81,7 +91,24 @@ const server = Bun.serve<ConnData>({
         ws.close(1003, 'Binary frames required');
         return;
       }
-      toWorker({ t: 'data', id: ws.data.id, bytes }); // structured clone (socket buffers may be pooled)
+      // Decode on the IO thread; the worker's sim gets a structured envelope.
+      let env;
+      try {
+        env = decodeEnvelope(bytes, { maxPayloadBytes: DEFAULT_MAX_PAYLOAD_BYTES });
+      } catch (err) {
+        if (err instanceof EnvelopeDecodeError) {
+          ws.send(
+            encodeSystemEnvelope(
+              SystemType.Error,
+              encodeErrorPayload({ code: errorCodeForDecodeReason(err.reason), message: err.message }),
+            ),
+          );
+          return;
+        }
+        throw err;
+      }
+      // The decoded payload owns a fresh buffer — transfer it into the worker.
+      toWorker({ t: 'data', id: ws.data.id, env }, [env.payload.buffer]);
     },
     close(ws) {
       conns.delete(ws.data.id);

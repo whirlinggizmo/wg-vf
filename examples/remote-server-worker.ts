@@ -4,7 +4,14 @@
 // client bytes here, and this thread relays host output back. Envelope decode
 // happens here (with the sim); the main thread never touches the wire format.
 
-import { SessionManager, SystemClock, fileDurableStore, type BytePeer, type Manifest } from '../src';
+import {
+  SessionManager,
+  SystemClock,
+  fileDurableStore,
+  type Envelope,
+  type EnvelopePeer,
+  type Manifest,
+} from '../src';
 import type { MainToWorker, WorkerToMain } from './remote-server-bridge';
 
 const MAX_ROOMS = Number(Bun.env.VF_MAX_ROOMS ?? 256);
@@ -42,25 +49,28 @@ const scope = self as unknown as {
   addEventListener(type: 'message', cb: (ev: MessageEvent<MainToWorker>) => void): void;
 };
 
-const conns = new Map<number, { listeners: Set<(b: Uint8Array) => void>; disconnect: () => void }>();
+const conns = new Map<number, { listeners: Set<(env: Envelope) => void>; disconnect: () => void }>();
 
 scope.addEventListener('message', (ev) => {
   const m = ev.data;
   if (m.t === 'open') {
-    const listeners = new Set<(b: Uint8Array) => void>();
-    const pipe: BytePeer = {
-      send: (bytes, opts) => {
-        // Honor the ownership grant: transfer the buffer to the main thread when
-        // this send is the buffer's sole use and it owns its whole buffer.
-        const owned = !!opts?.transferable && bytes.byteOffset === 0 && bytes.buffer.byteLength === bytes.byteLength;
-        scope.postMessage({ t: 'data', id: m.id, bytes }, owned ? [bytes.buffer] : undefined);
+    const listeners = new Set<(env: Envelope) => void>();
+    // A structured EnvelopePeer: the host works in envelopes; main did the
+    // decode and does the encode, so this thread never frames.
+    const pipe: EnvelopePeer = {
+      send: (env, opts) => {
+        // Honor the ownership grant: transfer the payload buffer to main when
+        // this send is its sole use and it owns its whole buffer.
+        const p = env.payload;
+        const owned = !!opts?.transferable && p.byteOffset === 0 && p.buffer.byteLength === p.byteLength;
+        scope.postMessage({ t: 'data', id: m.id, env }, owned ? [p.buffer] : undefined);
       },
-      onBytes: (cb) => {
+      onEnvelope: (cb) => {
         listeners.add(cb);
         return () => listeners.delete(cb);
       },
     };
-    const conn = sessions.connect(m.room, pipe);
+    const conn = sessions.connectEnvelopes(m.room, pipe);
     if (!conn) {
       // Unknown room, or at MAX_ROOMS capacity. 1013 = try again later.
       scope.postMessage({ t: 'close', id: m.id, code: 1013, reason: `session unavailable: '${m.room}'` });
@@ -69,7 +79,7 @@ scope.addEventListener('message', (ev) => {
     conns.set(m.id, { listeners, disconnect: conn.disconnect });
   } else if (m.t === 'data') {
     const c = conns.get(m.id);
-    if (c) for (const cb of c.listeners) cb(m.bytes);
+    if (c) for (const cb of c.listeners) cb(m.env);
   } else if (m.t === 'close') {
     const c = conns.get(m.id);
     if (c) {

@@ -20,6 +20,7 @@ export {
   encodeSystemEnvelope,
   encodeAppEnvelope,
   encodeFrameEnvelope,
+  encodeFramePayload,
   type EncodeEnvelopeInput,
 } from './encode.js';
 

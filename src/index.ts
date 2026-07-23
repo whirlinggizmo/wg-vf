@@ -50,7 +50,8 @@ export { type Clock, SystemClock } from './hosts/Clock.js';
 
 // Transports (byte pipes; Part II §8).
 export type { Transport } from './transports/Transport.js';
-export type { BytePeer } from './transports/BytePeer.js';
+export type { BytePeer, SendOptions } from './transports/BytePeer.js';
+export { byteEnvelopePeer, type EnvelopePeer } from './transports/EnvelopePeer.js';
 export {
   messagePortBytePeer,
   type MessagePortLike,
