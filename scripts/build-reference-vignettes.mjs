@@ -23,10 +23,14 @@ const EXPORTS = [
 
 mkdirSync(OUT, { recursive: true });
 
-for (const v of ['counter', 'echo', 'faulty']) {
+// The Vignette FS ABI imports (wg_vf_fs_*) are provided by this JS library; it's
+// harmless for vignettes that don't use them (unused imports are dropped).
+const FS_LIB = `${INC}/wg_vf_fs.lib.js`;
+
+for (const v of ['counter', 'echo', 'faulty', 'persist']) {
   execFileSync('emcc', [
     `${DIR}/${v}.c`, GLUE, `-I${INC}`, '-o', `${OUT}/${v}_wasm.js`,
-    '-Oz', '--no-entry',
+    '-Oz', '--no-entry', '--js-library', FS_LIB,
     '-sMODULARIZE=1', '-sEXPORT_ES6=1', '-sALLOW_MEMORY_GROWTH',
     '-sENVIRONMENT=web,worker,node', '-sERROR_ON_UNDEFINED_SYMBOLS=0',
     '-sEXPORTED_RUNTIME_METHODS=HEAPU8', `-sEXPORTED_FUNCTIONS=${EXPORTS}`,

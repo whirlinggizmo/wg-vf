@@ -70,6 +70,25 @@ void wg_vf_broadcast(const uint8_t *data, uint32_t len);
 void wg_vf_publish_frame(uint32_t seq, const uint8_t *body, uint32_t len);
 
 /* ======================================================================== */
+/* Filesystem — the Vignette FS ABI (docs/vignette-fs-abi.md). These are       */
+/* host-PROVIDED imports: the host owns the jailed mount, you call these. Paths */
+/* are UTF-8 + explicit length. Return: >=0 ok (or a byte count); -1 not found, */
+/* -2 buffer too small (call wg_vf_fs_size first), -3 jail violation, -4 bad    */
+/* args. Reads hit the in-memory mount (state is restored before on_init);      */
+/* wg_vf_fs_flush is a durability barrier the host performs asynchronously.     */
+/* ======================================================================== */
+
+int32_t wg_vf_fs_size(const char *path, uint32_t path_len);
+int32_t wg_vf_fs_read(const char *path, uint32_t path_len, uint8_t *out, uint32_t out_cap);
+int32_t wg_vf_fs_write(const char *path, uint32_t path_len, const uint8_t *data, uint32_t data_len);
+int32_t wg_vf_fs_delete(const char *path, uint32_t path_len);
+int32_t wg_vf_fs_exists(const char *path, uint32_t path_len);
+int32_t wg_vf_fs_is_dir(const char *path, uint32_t path_len);
+int32_t wg_vf_fs_mkdir(const char *path, uint32_t path_len);
+int32_t wg_vf_fs_list(const char *prefix, uint32_t prefix_len, uint8_t *out, uint32_t out_cap);
+void wg_vf_fs_flush(void);
+
+/* ======================================================================== */
 /* Host-facing ABI (implemented in wg_vf.c). You do NOT call these.          */
 /* Lifecycle exports return 0 on success; nonzero or a trap is sim-fatal.    */
 /* ======================================================================== */

@@ -12,6 +12,7 @@ import {
   type FrameView,
   type OutboxEntry,
   type Vignette,
+  type VignetteServices,
 } from './Vignette.js';
 
 type WasmExportFn = (...args: number[]) => number;
@@ -76,7 +77,17 @@ class WasmVignette implements Vignette {
   constructor(
     private readonly getHeapU8: HeapU8Provider,
     private readonly exports: WasmCallExports,
+    private readonly module: WasmVignetteInstance,
   ) {}
+
+  /**
+   * Expose the host filesystem to the wasm module: the wg_vf_fs_* imports (see
+   * wg_vf_fs.lib.js) read `Module.wgVfFs`, so setting it here — before init —
+   * gives this instance's wasm code its jailed mount.
+   */
+  attachServices(services: VignetteServices): void {
+    (this.module as unknown as { wgVfFs?: VignetteServices['fs'] }).wgVfFs = services.fs;
+  }
 
   init(initPayload: Uint8Array): void {
     this.callWithPayload(this.exports.vf_init, 'vf_init', initPayload);
@@ -261,5 +272,5 @@ export function createWasmInstance(module: WasmVignetteInstance): Vignette {
     vf_mem_alloc: module._vf_mem_alloc,
     vf_mem_free: module._vf_mem_free,
   };
-  return new WasmVignette(() => module.HEAPU8, exports);
+  return new WasmVignette(() => module.HEAPU8, exports, module);
 }
