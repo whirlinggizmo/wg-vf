@@ -32,6 +32,25 @@ Delivered bytes are identical whether a transport copies or takes the buffer —
 determinism suite enforces that, which is why this is safe to ship without a
 contract freeze. A transport is always free to ignore the hint and copy.
 
+**Why it's worth it: a clone allocates on the receiver.** A structured clone
+doesn't just copy — it allocates a fresh buffer on the receiving side and copies
+into it. A transfer *moves* the existing buffer: no receiver allocation, no copy.
+So the grant saves work on **both** sides for a sole recipient. It's also why it
+can't help a broadcast to N: `N` clones = 0 host-allocs + `N` receiver-allocs +
+`N` copies, while copy-per-recipient + transfer = `N` host-allocs + 0
+receiver-allocs + `N` copies — the same totals, just shifted sides. So the grant
+is (correctly) restricted to a sole recipient.
+
+**Both directions.** Egress (host → peer) is granted automatically by `route`.
+Ingress (app → sim) is the *client's* `send` to grant — and it's the cleanest
+case: a client is always the sole sender and the host the sole recipient, so a
+client send is always transfer-safe when it owns the buffer (a freshly encoded
+envelope always does). `messagePortBytePeer` honors the hint either way; a client
+opts in by passing `{ transferable: true }`. (Only the worker path benefits — a
+WebSocket `send` can't transfer, so the hint is a no-op there. And ingress still
+pays the `decodeEnvelope` slice + any wasm staging, so it removes one of two
+ingress copies, not all.)
+
 ## Deferred #1: buffer pooling / return-swap
 
 Transfer removes the *copy* but the sender loses the buffer, so each send now
