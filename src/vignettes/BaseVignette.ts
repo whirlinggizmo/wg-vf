@@ -3,7 +3,7 @@
 // ops default to no-ops; override what you need. The host never requires this
 // base — any object satisfying Vignette works.
 
-import type { MountedStorage } from '../storage/VignetteStorage.js';
+import type { VignetteFs } from '../storage/VignetteStorage.js';
 import { WG_VF_ABI_VERSION } from './abi.js';
 import {
   PeerLeftReason,
@@ -26,20 +26,15 @@ export abstract class BaseVignette implements Vignette {
   }
 
   /**
-   * The session's jailed storage mount. Throws if the host has no storage
-   * configured — persistence is a host capability, so guard with a host that
-   * provides a durable store (or catch and degrade).
+   * The session's jailed filesystem ({@link VignetteFs}) — synchronous read/
+   * write/delete/exists/mkdir/list plus an async `flush()` durability barrier.
+   * Throws if the host provided no services (storage is a host capability).
    */
-  protected get storage(): MountedStorage {
+  protected get fs(): VignetteFs {
     if (!this.services) {
-      throw new Error('vignette storage is not available: this host has no storage configured');
+      throw new Error('vignette filesystem is not available: this host provided no services');
     }
-    return this.services.storage;
-  }
-
-  /** Persist the storage mount durably (async). No-op if storage is unconfigured. */
-  protected flush(): Promise<void> {
-    return this.services ? this.services.flush() : Promise.resolve();
+    return this.services.fs;
   }
 
   init(_initPayload: Uint8Array): void | Promise<void> {}

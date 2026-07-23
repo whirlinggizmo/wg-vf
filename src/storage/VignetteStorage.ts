@@ -48,6 +48,31 @@ export function jailPath(input: string): string | null {
   return out.join('/');
 }
 
+/**
+ * The vignette filesystem ABI — the single contract every target (TS, wasm,
+ * native) must meet, so a vignette behaves identically whichever binding it runs
+ * as. The C/wasm and native sides expose the same operations as host imports
+ * (`wg_vf_fs_read/write/delete/exists/is_dir/mkdir/list/flush`); this is the TS
+ * face of that ABI.
+ *
+ * All path ops are **synchronous and jailed** (see {@link jailPath}). `flush` is
+ * the one async edge: a **durability barrier** — "make prior writes durable" —
+ * that a backend which is already durable (native fs) or has none (memory /
+ * no store) may treat as a no-op. Reads never block on durability; state is
+ * restored into the mount by the host before `init`.
+ */
+export interface VignetteFs {
+  read(path: string): Uint8Array | null;
+  write(path: string, bytes: Uint8Array): void;
+  delete(path: string): boolean;
+  exists(path: string): boolean;
+  isDirectory(path: string): boolean;
+  mkdir(path: string): void;
+  list(prefix?: string): string[];
+  /** Durability barrier (async). No-op where the backend is already durable. */
+  flush(): Promise<void>;
+}
+
 /** jailPath that throws instead of returning null — for ops that must resolve. */
 function resolveKey(path: string): string {
   const key = jailPath(path);
@@ -284,4 +309,23 @@ export class VignetteStorageSession {
   async destroy(): Promise<void> {
     await this.durable.remove(this.scope);
   }
+}
+
+/**
+ * Present a mount + a durability barrier as the vignette-facing {@link VignetteFs}.
+ * The host builds one per session (flush wired to the durable {@link
+ * VignetteStorageSession}, or a no-op when storage is ephemeral) and hands it to
+ * the vignette via services.
+ */
+export function vignetteFs(mount: MountedStorage, flush: () => Promise<void>): VignetteFs {
+  return {
+    read: (p) => mount.read(p),
+    write: (p, b) => mount.write(p, b),
+    delete: (p) => mount.delete(p),
+    exists: (p) => mount.exists(p),
+    isDirectory: (p) => mount.isDirectory(p),
+    mkdir: (p) => mount.mkdir(p),
+    list: (p) => mount.list(p),
+    flush,
+  };
 }

@@ -28,18 +28,18 @@ class PersistCounter extends BaseVignette {
     this.flushEach = flushEach;
   }
   override init(): void {
-    const saved = this.storage.read('count');
+    const saved = this.fs.read('count');
     this.count = saved ? u32(saved) : 0;
   }
   override async handleMessage(sender: number, _payload: Uint8Array): Promise<void> {
     this.count = (this.count + 1) >>> 0;
-    this.storage.write('count', packU32(this.count));
-    if (this.flushEach) await this.flush();
+    this.fs.write('count', packU32(this.count));
+    if (this.flushEach) await this.fs.flush();
     this.emit(sender, packU32(this.count)); // echo the running count
   }
   // Flush on graceful teardown too (covers the no-flush-per-message case).
   override async shutdown(): Promise<void> {
-    await this.flush();
+    await this.fs.flush();
   }
 }
 

@@ -31,6 +31,7 @@ import {
 import {
   MountedStorage,
   VignetteStorageSession,
+  vignetteFs,
   scopeFor,
   type DurableStore,
 } from '../storage/VignetteStorage.js';
@@ -322,7 +323,7 @@ export class VignetteHost {
       await session.restore();
       flush = () => session.flush();
     }
-    const services: VignetteServices = { storage: mount, flush };
+    const services: VignetteServices = { fs: vignetteFs(mount, flush) };
     vignette.attachServices?.(services);
   }
 

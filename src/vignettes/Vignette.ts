@@ -6,18 +6,17 @@
 // Operations may be sync or async; the host invokes them strictly serially,
 // never concurrently or reentrantly (Part I §2.2), awaiting each in turn.
 
-import type { MountedStorage } from '../storage/VignetteStorage.js';
+import type { VignetteFs } from '../storage/VignetteStorage.js';
 
 /**
  * Host-provided capabilities handed to a vignette before `init` via
  * {@link Vignette.attachServices}. The host owns the backend, so this works the
  * same for TS, wasm, and native. Extensible — a logger/config/fetch may join
- * `storage` later. `storage` is a jailed in-memory mount (synchronous); `flush`
- * persists it to durable storage (async) — call it at your own cadence.
+ * `fs` later. `fs` is the jailed vignette filesystem (synchronous ops + an async
+ * `flush()` durability barrier you call at your own cadence).
  */
 export interface VignetteServices {
-  storage: MountedStorage;
-  flush(): Promise<void>;
+  fs: VignetteFs;
 }
 
 /** Reason a peer left, delivered to `peerLeft` (Part I §2.1). */

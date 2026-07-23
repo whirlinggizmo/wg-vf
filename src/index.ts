@@ -80,9 +80,11 @@ export {
 export {
   MountedStorage,
   VignetteStorageSession,
+  vignetteFs,
   StorageJailError,
   jailPath,
   scopeFor,
   memoryDurableStore,
+  type VignetteFs,
   type DurableStore,
 } from './storage/VignetteStorage.js';
