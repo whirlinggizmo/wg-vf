@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**110 tests green; both projects typecheck; the package is git-installable. No
+**128 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -38,6 +38,11 @@ known correctness gaps.**
 - **Transports**: worker (`messagePortBytePeer` + `runWorkerHost`) and WebSocket
   (plus `ReconnectingWebSocketTransport`); session-keyed reference server
   (`examples/remote-server.ts`).
+- **Vignette storage** (`src/storage/`, [FS ABI](./vignette-fs-abi.md)): host-owned,
+  jailed filesystem (`VignetteFs` — sync read/write/delete/exists/mkdir/list + async
+  `flush` barrier) with `restore` before init and vignette-driven/graceful-shutdown
+  flush. Delivered via `Vignette.attachServices`. TS + **wasm** at parity
+  (`wg_vf_fs_*` imports); native follows the same ABI with the native host.
 - **Session resume**: client-side `ResumeCoordinator` + `TokenStore`
   (`webStorageTokenStore`/`memoryTokenStore`) reopens with a resume-`Join` so a
   `clientId` survives a transport drop or page reload; host round-trip covered by
