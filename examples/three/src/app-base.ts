@@ -58,6 +58,10 @@ export class ThreeApp {
 
     // Name the vignette (js or wasm binding); the host resolves it from the
     // worker's manifest. SpawnPlayer follows on Ready.
+    // A client send is always the sole use of a freshly encoded envelope, and the
+    // host is the sole recipient — so grant ownership (transferable): the worker
+    // boundary moves the buffer instead of structured-cloning it (zero-copy
+    // app→sim on this path; see docs/transport-perf.md).
     this.peer.send(
       encodeSystemEnvelope(
         SystemType.Init,
@@ -66,12 +70,13 @@ export class ThreeApp {
           initPayload: encodePayload({ type: "Init", scene: "three-demo" }),
         }),
       ),
+      { transferable: true },
     );
     this.log(`provisioning 'three-${this.kind}' vignette in worker`);
   }
 
   sendMessage(msg: unknown): void {
-    this.peer?.send(encodeAppEnvelope(encodePayload(msg)));
+    this.peer?.send(encodeAppEnvelope(encodePayload(msg)), { transferable: true });
   }
 
   spawnEntity(): void {

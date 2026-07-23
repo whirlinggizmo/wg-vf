@@ -31,7 +31,9 @@ peer.onBytes((bytes) => {
     if (env.systemType === SystemType.Ready) {
       const r = decodeReadyPayload(env.payload)!;
       console.log(`[app] Ready: clientId=${r.clientId} vignette=${r.vignetteId}@${r.version} step=${r.fixedStepUs}us`);
-      peer.send(encodeAppEnvelope(new TextEncoder().encode("hello from app")));
+      // Sole-recipient (the host), freshly encoded → grant ownership so the
+      // worker boundary transfers instead of copying (see docs/transport-perf.md).
+      peer.send(encodeAppEnvelope(new TextEncoder().encode("hello from app")), { transferable: true });
       console.log("[app] sent App message");
     } else if (env.systemType === SystemType.Error) {
       console.log("[app] Error:", decodeErrorPayload(env.payload));
@@ -62,5 +64,6 @@ peer.send(
     SystemType.Init,
     encodeInitPayload({ vignetteId: "simple", initPayload: new TextEncoder().encode("{}") }),
   ),
+  { transferable: true },
 );
 console.log("[app] sent Init");
