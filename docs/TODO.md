@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**128 tests green; both projects typecheck; the package is git-installable. No
+**137 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -43,6 +43,9 @@ known correctness gaps.**
   `flush` barrier) with `restore` before init and vignette-driven/graceful-shutdown
   flush. Delivered via `Vignette.attachServices`. TS + **wasm** at parity
   (`wg_vf_fs_*` imports); native follows the same ABI with the native host.
+  Durable backends: `memoryDurableStore` (tests), `indexedDbDurableStore`
+  (browser/worker), `fileDurableStore` (server disk, wired into the reference
+  server via `VF_DATA_DIR`).
 - **Session resume**: client-side `ResumeCoordinator` + `TokenStore`
   (`webStorageTokenStore`/`memoryTokenStore`) reopens with a resume-`Join` so a
   `clientId` survives a transport drop or page reload; host round-trip covered by

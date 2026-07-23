@@ -9,6 +9,8 @@ import { SessionManager } from '../../src/hosts/SessionManager.js';
 import { singleVignetteManifest } from '../../src/hosts/Manifest.js';
 import type { ManifestEntry } from '../../src/hosts/Manifest.js';
 import type { Vignette } from '../../src/vignettes/Vignette.js';
+import { BaseVignette } from '../../src/vignettes/BaseVignette.js';
+import { memoryDurableStore } from '../../src/storage/VignetteStorage.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
 import { HostPeer } from '../../src/testing/HostPeer.js';
@@ -145,6 +147,65 @@ describe('SessionManager', () => {
     await mgr.whenIdle();
     expect(d.attached).toBe(true);
     expect(mgr.get('roomD')?.getState()).toBe('READY');
+  });
+
+  test('SM-06: with a durableStore, a room\'s state survives teardown + re-provision', async () => {
+    // A counter that restores from storage on init and persists on each message.
+    class PersistCounter extends BaseVignette {
+      private n = 0;
+      override init(): void {
+        const s = this.fs.read('n');
+        this.n = s ? s[0] : 0;
+      }
+      override async handleMessage(sender: number): Promise<void> {
+        this.n = (this.n + 1) & 0xff;
+        this.fs.write('n', new Uint8Array([this.n]));
+        await this.fs.flush();
+        this.emit(sender, new Uint8Array([this.n]));
+      }
+    }
+    const durable = memoryDurableStore();
+    const clock = new VirtualClock(0);
+    const mgr = new SessionManager({
+      clock,
+      durableStore: durable,
+      // emptyGrace 0 → the room tears down the instant its last peer leaves.
+      manifestFor: () => singleVignetteManifest('sim', entry(() => new PersistCounter(), { emptyGraceMs: 0 })),
+    });
+    const connect = (key: string) => {
+      const { a, b } = createLoopbackPipe();
+      mgr.connect(key, a);
+      return new HostPeer(b);
+    };
+
+    // Provision room1, bump the counter to 1 (persisted, scope keyed by room).
+    const p1 = connect('room1');
+    p1.init('sim');
+    await mgr.whenIdle();
+    p1.app(new Uint8Array([1]));
+    await mgr.whenIdle();
+    expect(p1.apps().at(-1)!.payload[0]).toBe(1);
+
+    // Last peer leaves → room torn down and reaped.
+    p1.leave();
+    await mgr.whenIdle();
+    expect(mgr.sessionCount).toBe(0);
+
+    // Re-provisioning the same room restores n=1, so the next bump is 2.
+    const p2 = connect('room1');
+    p2.init('sim');
+    await mgr.whenIdle();
+    p2.app(new Uint8Array([1]));
+    await mgr.whenIdle();
+    expect(p2.apps().at(-1)!.payload[0]).toBe(2);
+
+    // A different room is an independent scope — starts from 0.
+    const p3 = connect('room2');
+    p3.init('sim');
+    await mgr.whenIdle();
+    p3.app(new Uint8Array([1]));
+    await mgr.whenIdle();
+    expect(p3.apps().at(-1)!.payload[0]).toBe(1);
   });
 
   test('pumpAll reaps a session that shut down mid-pump', async () => {

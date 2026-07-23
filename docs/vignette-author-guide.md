@@ -447,14 +447,19 @@ Wiring (the host embedder, not you) picks the durable backend and the **scope ke
 — the stable id (save slot / room / user) a returning instance reuses:
 
 ```ts
+// Browser/worker — one session:
 runWorkerHost(port, manifest, {
-  durableStore: indexedDbDurableStore(),   // browser/worker; or memoryDurableStore() for tests
+  durableStore: indexedDbDurableStore(),   // survives reloads; memoryDurableStore() for tests
   storageKey: saveSlot,
 });
+
+// Server (Bun/Node) — many rooms, each scoped by its room key:
+new SessionManager({ manifestFor, durableStore: fileDurableStore('/var/lib/wg-vf') });
 ```
 
-Without a `durableStore`, `this.fs` still works but is **ephemeral** (gone on
-teardown) — handy for scratch state.
+`fileDurableStore` persists to disk, so a room's state survives teardown and a
+server restart. Without a `durableStore`, `this.fs` still works but is
+**ephemeral** (gone on teardown) — handy for scratch state.
 
 ---
 

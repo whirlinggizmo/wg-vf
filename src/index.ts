@@ -92,3 +92,4 @@ export {
   indexedDbDurableStore,
   type IndexedDbDurableStoreOptions,
 } from './storage/indexedDbDurableStore.js';
+export { fileDurableStore } from './storage/fileDurableStore.js';

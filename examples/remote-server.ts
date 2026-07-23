@@ -1,6 +1,7 @@
 import {
   SessionManager,
   SystemClock,
+  fileDurableStore,
   type BytePeer,
   type Manifest,
 } from '../src';
@@ -60,7 +61,17 @@ function manifestFor(_key: string): Manifest {
   };
 }
 
-const sessions = new SessionManager({ manifestFor, clock: new SystemClock(), maxSessions: MAX_ROOMS });
+// Set VF_DATA_DIR to persist vignette state to disk (keyed by room), so a room's
+// state survives teardown and a server restart. Unset → storage is ephemeral.
+const dataDir = Bun.env.VF_DATA_DIR;
+const durableStore = dataDir ? fileDurableStore(dataDir) : undefined;
+
+const sessions = new SessionManager({
+  manifestFor,
+  clock: new SystemClock(),
+  maxSessions: MAX_ROOMS,
+  durableStore,
+});
 
 type ConnData = { room: string; listeners: Set<(bytes: Uint8Array) => void>; disconnect: () => void };
 
@@ -125,7 +136,10 @@ const pumpTimer = setInterval(() => {
   void sessions.pumpAll();
 }, PUMP_INTERVAL_MS);
 
-console.log(`[server] listening on ws://${hostname}:${port}/r/<room> (max ${MAX_ROOMS} rooms)`);
+console.log(
+  `[server] listening on ws://${hostname}:${port}/r/<room> (max ${MAX_ROOMS} rooms; ` +
+    `storage: ${dataDir ? `persistent → ${dataDir}` : 'ephemeral'})`,
+);
 
 // Graceful shutdown: stop pumping and stop accepting connections.
 function stop(signal: string): void {
