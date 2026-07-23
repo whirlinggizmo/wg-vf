@@ -44,6 +44,15 @@ export interface FrameView {
 }
 
 export interface Vignette {
+  /**
+   * The wg-vf ABI version this vignette was built against. Set automatically by
+   * `BaseVignette`; a hand-rolled `implements Vignette` sets it to
+   * `WG_VF_ABI_VERSION` to be loadable in **module form** (dynamic import),
+   * where the host checks it and refuses a mismatch. Not required for the
+   * in-process factory (`create`) form, which the compiler already checks.
+   */
+  readonly abiVersion?: number;
+
   init(initPayload: Uint8Array): void | Promise<void>;
   tick(dtUs: number, frameId: number): void | Promise<void>;
   fixedTick(stepUs: number, stepIndex: number): void | Promise<void>;

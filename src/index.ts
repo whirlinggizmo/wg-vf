@@ -15,7 +15,7 @@ export {
 
 // Version surfaces (see the author guide's versioning section):
 //   VERSION          — framework package version (semver)
-//   WG_VF_ABI_VERSION — host↔native/wasm-sim ABI version (integer, above)
+//   WG_VF_ABI_VERSION — host↔sim ABI version (wasm/native + module-form JS; above)
 //   ENVELOPE_VERSION  — host↔app wire version (from ./envelope, below)
 export { VERSION } from './version.js';
 

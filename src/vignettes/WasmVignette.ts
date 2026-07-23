@@ -33,11 +33,11 @@ interface WasmCallExports {
   vf_mem_free?: WasmExportFn;
 }
 
-/**
- * The wg_vf ABI version this host understands. Must match `WG_VF_ABI_VERSION`
- * in wg_vf.h. A vignette reporting a different version (or none) is refused.
- */
-export const WG_VF_ABI_VERSION = 1;
+// The wg_vf ABI version this host understands (canonical source: ./abi.ts),
+// re-exported here for back-compat. A wasm/native vignette reporting a different
+// version — or none — is refused in createWasmInstance below.
+export { WG_VF_ABI_VERSION } from './abi.js';
+import { WG_VF_ABI_VERSION } from './abi.js';
 
 /** The shape of an emscripten MODULARIZE module instance. */
 export interface WasmVignetteInstance {
@@ -64,6 +64,10 @@ type HeapU8Provider = () => Uint8Array;
 const OUTBOX_HEADER_SIZE = 12; // head u32, tail u32, cap u32
 
 class WasmVignette implements Vignette {
+  // The wasm binary was already ABI-checked (vf_abi_version) in createWasmInstance;
+  // expose the version so any Vignette reports it uniformly.
+  readonly abiVersion = WG_VF_ABI_VERSION;
+
   private readonly outbox: OutboxEntry[] = [];
   // Once trapped, the instance's memory is untrustworthy — refuse all further
   // calls and keep every failure sim-fatal (§2.4).

@@ -59,17 +59,17 @@ transports.
 
 ## Versioning (four independent surfaces)
 
-| Constant | Seam | Enforcement |
+| Constant | Seam | Enforcement (at sim **load**) |
 |---|---|---|
 | `ENVELOPE_VERSION` (2) | host ↔ app **wire** | decode rejects a mismatch → `Error(UnsupportedVersion)` |
-| `WG_VF_ABI_VERSION` (1) | host ↔ native/wasm-sim **ABI** | `createWasmInstance` refuses a mismatch |
+| `WG_VF_ABI_VERSION` (1) | host ↔ sim **ABI** | wasm/native: `vf_abi_version()` checked in `createWasmInstance`; dynamically-imported JS: `abiVersion` checked in `loadVignetteModule` (`assertJsVignetteAbi`). In-process `create`-form JS is compile-time-checked instead. |
 | manifest `version` | the **vignette** (app semver) | echoed in `Ready`; peers can verify |
 | `VERSION` | the **package** (semver) | `src/version.ts` — keep in sync with `package.json` |
 
-Bump `WG_VF_ABI_VERSION` on any breaking `vf_*` signature or outbox/frame layout
-change — **in both `wg_vf.h` and `WasmVignette.ts`**. Bump `ENVELOPE_VERSION` on
-breaking wire changes (and update `test/fixtures/envelope-golden.json` + Part I §1
-in the same PR).
+`WG_VF_ABI_VERSION` has one source of truth (`src/vignettes/abi.ts`); `wg_vf.h`
+mirrors it as a `#define`. Bump **both** on any breaking `vf_*` signature or
+outbox/frame layout change. Bump `ENVELOPE_VERSION` on breaking wire changes (and
+update `test/fixtures/envelope-golden.json` + Part I §1 in the same PR).
 
 ## Gotchas
 

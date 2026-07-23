@@ -335,18 +335,24 @@ mismatching a running app or sim:
   disagree, the decoder rejects the envelope with `Error(UnsupportedVersion)`
   before delivery. Your App payload *format* is your own concern (version it
   however you like inside the bytes).
-- **ABI** — `WG_VF_ABI_VERSION` (`wg_vf.h`). A native/wasm vignette exports
-  `vf_abi_version()`; the host checks it on load and **refuses a mismatch** with a
-  clear error. So when you upgrade wg-vf, **rebuild your `.wasm`/`.so`** against
-  the new header — a stale binary fails loudly instead of corrupting memory. (TS
-  vignettes are checked at compile time by the `Vignette` interface, so no runtime
-  version is needed.)
+- **ABI** — `WG_VF_ABI_VERSION`. The host checks it when it **loads** a vignette
+  and **refuses a mismatch** with a clear error, so a stale build fails loudly
+  instead of misbehaving. How the version is carried depends on how you're loaded:
+  - **wasm/native** — the binary exports `vf_abi_version()` (from `wg_vf.c`).
+    Rebuild your `.wasm`/`.so` against the new `wg_vf.h` when you bump wg-vf.
+  - **JS, module form (dynamically imported)** — the vignette carries an
+    `abiVersion`. `BaseVignette` sets it for you; a hand-rolled
+    `implements Vignette` sets `readonly abiVersion = WG_VF_ABI_VERSION`. Rebuild
+    the module against the new wg-vf when you bump it.
+  - **JS, factory (`create`) form** — none needed: it's compiled in the same
+    project as the host, so the `Vignette` interface catches drift at build time.
 - **Vignette** — the `version` in your manifest entry (your own semver). It's
   echoed back in `Ready`, so a peer can confirm it got the version it asked for.
 - **Package** — `VERSION` (the wg-vf semver), exported for diagnostics/logging.
 
-Practical rule: **rebuild native/wasm vignettes whenever you bump wg-vf.** If the
-ABI version changed, the host tells you; if it didn't, the rebuild is a no-op.
+Practical rule: **rebuild any separately-built vignette (wasm/native, or a
+dynamically-imported JS module) whenever you bump wg-vf.** If the ABI version
+changed, the host tells you at load; if it didn't, the rebuild is a no-op.
 
 ---
 

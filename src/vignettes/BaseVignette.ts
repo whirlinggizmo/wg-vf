@@ -3,6 +3,7 @@
 // ops default to no-ops; override what you need. The host never requires this
 // base — any object satisfying Vignette works.
 
+import { WG_VF_ABI_VERSION } from './abi.js';
 import {
   PeerLeftReason,
   type FrameView,
@@ -11,6 +12,9 @@ import {
 } from './Vignette.js';
 
 export abstract class BaseVignette implements Vignette {
+  /** ABI this build targets; the host checks it when loading in module form. */
+  readonly abiVersion = WG_VF_ABI_VERSION;
+
   private readonly outbox: OutboxEntry[] = [];
 
   init(_initPayload: Uint8Array): void | Promise<void> {}
