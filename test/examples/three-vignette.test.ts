@@ -9,6 +9,7 @@ import ThreeVignette from '../../examples/three/vignette/ts/three-vignette.js';
 import { encodePayload, decodePayload } from '../../examples/codecs/json-codec.js';
 import { VignetteHost } from '../../src/hosts/VignetteHost.js';
 import type { ManifestEntry } from '../../src/hosts/Manifest.js';
+import { memoryDurableStore } from '../../src/storage/VignetteStorage.js';
 import { createWasmInstance } from '../../src/vignettes/WasmVignette.js';
 import { VirtualClock } from '../../src/testing/VirtualClock.js';
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
@@ -67,6 +68,39 @@ describe('three example vignette (v2)', () => {
     expect(latest?.entities?.some((e) => e.color === 0x00ff00)).toBe(true);
 
     expect(host.getState()).toBe('READY');
+  });
+
+  test('persists its world and restores it into a fresh host (browser reload)', async () => {
+    // The browser uses indexedDbDurableStore; the logic is identical with memory.
+    const durable = memoryDurableStore();
+    const make = () =>
+      VignetteHost.single('three', entry(), new VirtualClock(0), { durableStore: durable, storageKey: 'save1' });
+    const connect = (host: VignetteHost) => {
+      const { a, b } = createLoopbackPipe();
+      host.connect(a);
+      return new HostPeer(b);
+    };
+    const decode = (peer: HostPeer): Msg[] => peer.apps().map((e) => decodePayload(e.payload) as Msg);
+
+    // Session 1: 5 seeded entities + a spawned green player = 6, all persisted.
+    const h1 = make();
+    const p1 = connect(h1);
+    p1.init('three', encodePayload({ type: 'Init' }));
+    await h1.whenIdle();
+    p1.app(encodePayload({ type: 'SpawnPlayer' }));
+    await h1.whenIdle();
+    expect(decode(p1).some((m) => m.type === 'EntitySpawned' && m.entity?.color === 0x00ff00)).toBe(true);
+
+    // Session 2: a brand-new host + vignette with the same store + scope. init
+    // restores the world (no fresh 5-spawn), and peerJoined broadcasts it back —
+    // so the green player from session 1 is present without re-spawning.
+    const h2 = make();
+    const p2 = connect(h2);
+    p2.init('three', encodePayload({ type: 'Init' }));
+    await h2.whenIdle();
+    const restored = decode(p2).find((m) => m.type === 'StateUpdate');
+    expect(restored?.entities?.length).toBe(6); // 5 seeded + 1 player, restored (not re-seeded)
+    expect(restored?.entities?.some((e) => e.color === 0x00ff00)).toBe(true);
   });
 
   test.skipIf(!threeWasm)('the Nim-interop→WASM three vignette behaves the same (green player on SpawnPlayer)', async () => {

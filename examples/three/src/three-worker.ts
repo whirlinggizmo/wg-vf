@@ -3,7 +3,12 @@
 // this manifest and loads the js/wasm module itself (Part I §3.1, Part II §4).
 // The app selects the binding by naming "three-js" or "three-wasm" in Init.
 
-import { runWorkerHost, type Manifest, type MessagePortLike } from "../../../src";
+import {
+  runWorkerHost,
+  indexedDbDurableStore,
+  type Manifest,
+  type MessagePortLike,
+} from "../../../src";
 
 const config = {
   version: "1.0.0",
@@ -29,4 +34,14 @@ const manifest: Manifest = {
   },
 };
 
-runWorkerHost(self as unknown as MessagePortLike, manifest);
+// Persist the sim to IndexedDB (available inside a Worker), keyed by a stable
+// scope, so the world survives a page reload / browser restart. The scope comes
+// from `?save=<slot>` on the worker URL (default "default") — pick a fresh slot
+// to start a new world, or reuse one to continue it. Restore happens before the
+// vignette's init; see the author guide §13 and docs/vignette-fs-abi.md.
+const saveSlot = new URL(self.location.href).searchParams.get("save") ?? "default";
+
+runWorkerHost(self as unknown as MessagePortLike, manifest, {
+  durableStore: indexedDbDurableStore(),
+  storageKey: saveSlot,
+});

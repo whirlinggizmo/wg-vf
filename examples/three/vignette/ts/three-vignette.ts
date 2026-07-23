@@ -24,7 +24,15 @@ export default class ThreeVignette extends BaseVignette {
 
   override init(payload: Uint8Array): void {
     console.log("[three-vignette] init:", decodePayload(payload));
-    for (let i = 0; i < 5; i++) this.spawnRandomEntity();
+    // Reconstitute the world from storage if we've run before (survives a reload
+    // when the host has a durableStore); otherwise seed a fresh one. peerJoined
+    // broadcasts the full state, so a restored world renders as the app attaches.
+    if (this.restore()) {
+      console.log(`[three-vignette] restored ${this.entities.size} entities from storage`);
+    } else {
+      for (let i = 0; i < 5; i++) this.spawnRandomEntity();
+      this.persist();
+    }
   }
 
   override tick(dtUs: number, frameId: number): void {
@@ -61,6 +69,7 @@ export default class ThreeVignette extends BaseVignette {
         const player: Entity = { id: this.playerId, x: 0, y: 0, z: 0, type: "cube", color: 0x00ff00 };
         this.entities.set(player.id, player);
         this.broadcast(encodePayload({ type: "EntitySpawned", entity: player }));
+        this.persist();
         break;
       }
       case "MoveEntity": {
@@ -70,11 +79,13 @@ export default class ThreeVignette extends BaseVignette {
           entity.y = msg.y;
           entity.z = msg.z;
           this.broadcast(encodePayload({ type: "EntityMoved", entity }));
+          this.persist();
         }
         break;
       }
       case "SpawnRandomEntity":
         this.spawnRandomEntity();
+        this.persist();
         break;
     }
   }
@@ -91,10 +102,47 @@ export default class ThreeVignette extends BaseVignette {
 
   override shutdown(): void {
     console.log("[three-vignette] shutdown");
+    this.persist(); // graceful teardown: the host awaits this
   }
 
   private createEid(): EID {
     return this.nextEntityId++;
+  }
+
+  // --- persistence (see the author guide §13) ------------------------------
+  // Persist the *authored* world (entity list, player, id counter). Positions'
+  // `y` is re-derived on tick, so we don't care that it's a checkpoint snapshot.
+
+  private persist(): void {
+    try {
+      this.fs.write(
+        "world",
+        encodePayload({
+          entities: Array.from(this.entities.values()),
+          playerId: this.playerId,
+          nextEntityId: this.nextEntityId,
+        }),
+      );
+      void this.fs.flush(); // durable barrier; host writes to IndexedDB async
+    } catch {
+      // No storage on this host → run ephemerally (nothing to restore next time).
+    }
+  }
+
+  private restore(): boolean {
+    let saved: Uint8Array | null;
+    try {
+      saved = this.fs.read("world");
+    } catch {
+      return false; // storage unavailable
+    }
+    if (!saved) return false;
+    const state = decodePayload(saved) as { entities: Entity[]; playerId: EID | null; nextEntityId: number };
+    this.entities.clear();
+    for (const e of state.entities) this.entities.set(e.id, e);
+    this.playerId = state.playerId;
+    this.nextEntityId = state.nextEntityId;
+    return this.entities.size > 0;
   }
 
   private spawnRandomEntity(): Entity {
