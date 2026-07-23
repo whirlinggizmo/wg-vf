@@ -8,6 +8,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { createLoopbackPipe } from '../../src/testing/LoopbackBytePipe.js';
 import { messagePortBytePeer, type MessagePortLike } from '../../src/transports/MessagePortBytePeer.js';
+import { PeerRegistry } from '../../src/hosts/PeerRegistry.js';
+import type { BytePeer, SendOptions } from '../../src/transports/BytePeer.js';
 
 describe('loopback ownership', () => {
   test('transferable delivers the same buffer; otherwise a copy', () => {
@@ -60,5 +62,79 @@ describe('worker port ownership', () => {
     const view = big.subarray(2, 5); // shares `big`'s buffer
     peer.send(view, { transferable: true });
     expect(calls[0].transfer).toBeUndefined(); // fell back to copy — transferring would neuter `big`
+  });
+});
+
+// --- Layer 1: PeerRegistry.route decides the grant by recipient count --------
+
+function recordingPipe() {
+  const sends: Array<{ transferable?: boolean }> = [];
+  const pipe: BytePeer = {
+    send: (_bytes, opts) => void sends.push({ transferable: opts?.transferable }),
+    onBytes: () => () => {},
+  };
+  return { sends, pipe };
+}
+
+describe('route ownership grant', () => {
+  test('grants to a unicast and a sole broadcast recipient, but not a shared broadcast', () => {
+    const reg = new PeerRegistry();
+    const a = recordingPipe();
+    reg.attach(reg.mint(), a.pipe);
+
+    reg.route(1, new Uint8Array([1])); // unicast → sole recipient
+    expect(a.sends.at(-1)!.transferable).toBe(true);
+
+    reg.route(0, new Uint8Array([2])); // broadcast, one peer → still sole
+    expect(a.sends.at(-1)!.transferable).toBe(true);
+
+    const b = recordingPipe();
+    reg.attach(reg.mint(), b.pipe);
+    reg.route(0, new Uint8Array([3])); // broadcast, two peers → shared, no grant
+    expect(a.sends.at(-1)!.transferable).toBe(false);
+    expect(b.sends.at(-1)!.transferable).toBe(false);
+  });
+});
+
+// --- End-to-end: a transport that REALLY neuters on transfer (like postMessage),
+// so a wrong grant on a shared broadcast would corrupt the later recipients.
+// Loopback can't catch this — it delivers as-is and never neuters.
+
+function neuteringPeer() {
+  const inbox: number[][] = [];
+  const pipe: BytePeer = {
+    send(bytes: Uint8Array, opts?: SendOptions) {
+      if (opts?.transferable && bytes.byteOffset === 0 && bytes.buffer.byteLength === bytes.byteLength) {
+        const moved = structuredClone(bytes, { transfer: [bytes.buffer] }); // detaches the source buffer
+        inbox.push(Array.from(moved));
+      } else {
+        inbox.push(Array.from(bytes)); // clone
+      }
+    },
+    onBytes: () => () => {},
+  };
+  return { inbox, pipe };
+}
+
+describe('broadcast transfer safety (real neutering)', () => {
+  test('a broadcast to two peers delivers intact bytes to both', () => {
+    const reg = new PeerRegistry();
+    const a = neuteringPeer();
+    const b = neuteringPeer();
+    reg.attach(reg.mint(), a.pipe);
+    reg.attach(reg.mint(), b.pipe);
+
+    reg.route(0, new Uint8Array([1, 2, 3])); // must NOT transfer (shared buffer)
+    expect(a.inbox.at(-1)).toEqual([1, 2, 3]);
+    expect(b.inbox.at(-1)).toEqual([1, 2, 3]); // would be [] if peer A had neutered it
+  });
+
+  test('a unicast to a single neutering peer transfers and still delivers correctly', () => {
+    const reg = new PeerRegistry();
+    const a = neuteringPeer();
+    const id = reg.mint();
+    reg.attach(id, a.pipe);
+    reg.route(id, new Uint8Array([9, 8, 7])); // sole recipient → transfers
+    expect(a.inbox.at(-1)).toEqual([9, 8, 7]);
   });
 });
