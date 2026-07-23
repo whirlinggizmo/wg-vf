@@ -26,7 +26,14 @@ import {
   SimFatalError,
   type FrameView,
   type Vignette,
+  type VignetteServices,
 } from '../vignettes/Vignette.js';
+import {
+  MountedStorage,
+  VignetteStorageSession,
+  scopeFor,
+  type DurableStore,
+} from '../storage/VignetteStorage.js';
 import {
   Channel,
   DEFAULT_MAX_PAYLOAD_BYTES,
@@ -52,6 +59,18 @@ export type HostState = 'IDLE' | 'INITING' | 'READY' | 'SHUTTING_DOWN' | 'CLOSED
 export interface VignetteHostOptions {
   /** Payload cap before a vignette is provisioned. Defaults to 1 MiB. */
   maxPayloadBytes?: number;
+  /**
+   * Durable backend for vignette storage. When set, the host restores the
+   * vignette's mount before `init` and its `flush()` persists here. When unset,
+   * storage is still available but ephemeral (lost on teardown).
+   */
+  durableStore?: DurableStore;
+  /**
+   * Stable scope for this host's durable storage — a save slot / room / user id
+   * that a reloaded instance reuses to find its data. Combined with the
+   * vignette id via {@link scopeFor}. Defaults to `'default'`.
+   */
+  storageKey?: string;
 }
 
 export interface PeerConnection {
@@ -109,6 +128,10 @@ export class VignetteHost {
   // (Part I §2.2) holds for free: each queued unit runs to completion in order.
   private opChain: Promise<void> = Promise.resolve();
 
+  // Vignette storage: the durable backend (if any) and this session's scope key.
+  private readonly durableStore: DurableStore | null;
+  private readonly storageKey: string;
+
   constructor(
     private readonly manifest: Manifest,
     clock: Clock,
@@ -117,6 +140,8 @@ export class VignetteHost {
     this.clock = clock;
     this.defaultMaxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.maxPayloadBytes = this.defaultMaxPayloadBytes;
+    this.durableStore = options.durableStore ?? null;
+    this.storageKey = options.storageKey ?? 'default';
   }
 
   /** Convenience for a host that serves a single named vignette. */
@@ -258,6 +283,9 @@ export class VignetteHost {
     try {
       this.vignette = isModuleSource(entry) ? await loadVignetteModule(entry) : await entry.create();
       this.engine = new FixedStepEngine(entry.fixedStepUs, entry.maxSubsteps);
+      // Provide storage and restore any durable state *before* init, so the
+      // vignette can rehydrate from its mount as init runs (Part I §3.3).
+      await this.attachStorage(this.vignette, init.vignetteId);
       await this.vignette.init(init.initPayload);
     } catch (err) {
       // init failure: report to the provisioning peer, stay un-provisioned so a
@@ -279,6 +307,23 @@ export class VignetteHost {
     this.loop = new HostLoop(this.clock, this.engine, this.vignette, this.loopHooks());
     this.state = 'READY';
     await this.admitPeer(conn);
+  }
+
+  /**
+   * Build this session's storage mount, restore any durable state, and hand the
+   * services to the vignette (before `init`). Storage is always available; it's
+   * durable only when the host was given a `durableStore`.
+   */
+  private async attachStorage(vignette: Vignette, vignetteId: string): Promise<void> {
+    const mount = new MountedStorage();
+    let flush = (): Promise<void> => Promise.resolve();
+    if (this.durableStore) {
+      const session = new VignetteStorageSession(scopeFor(vignetteId, this.storageKey), this.durableStore, mount);
+      await session.restore();
+      flush = () => session.flush();
+    }
+    const services: VignetteServices = { storage: mount, flush };
+    vignette.attachServices?.(services);
   }
 
   private async handleJoin(conn: Conn, payload: Uint8Array): Promise<void> {
@@ -316,7 +361,7 @@ export class VignetteHost {
     this.registry.attach(id, conn.pipe);
     const token = this.newToken();
     this.tokenById.set(id, token);
-    this.updateEmptyTimer();
+    void this.updateEmptyTimer(); // a fresh attach can't empty the session
 
     const ok = await this.invokeSimOp(() => this.vignette!.peerJoined(id));
     if (!ok) {
@@ -335,7 +380,7 @@ export class VignetteHost {
         const fresh = this.newToken();
         this.tokenById.set(id, fresh);
         this.registry.attach(id, conn.pipe);
-        this.updateEmptyTimer();
+        void this.updateEmptyTimer(); // a reconnect re-attaches, can't empty the session
         // Same id, no peerJoined — the sim never saw the peer leave.
         this.sendReady(conn.pipe, id, fresh);
         return true;
@@ -369,7 +414,7 @@ export class VignetteHost {
       startUs: this.clock.nowUs(),
       token: this.tokenById.get(id) ?? new Uint8Array(0),
     });
-    this.updateEmptyTimer();
+    await this.updateEmptyTimer(); // dropping to empty may trigger graceful teardown
   }
 
   private async evict(conn: Conn, reason: PeerLeftReason): Promise<void> {
@@ -387,7 +432,7 @@ export class VignetteHost {
     this.tokenById.delete(id);
     this.pending.delete(id);
     await this.invokeSimOp(() => this.vignette!.peerLeft(id, reason));
-    this.updateEmptyTimer();
+    await this.updateEmptyTimer(); // last peer out may trigger graceful teardown
   }
 
   // --- lifetime timers -----------------------------------------------------
@@ -409,11 +454,11 @@ export class VignetteHost {
       this.emptyStartUs !== null &&
       ((now - this.emptyStartUs) >>> 0) >= this.emptyGraceUs
     ) {
-      this.hostShutdown();
+      await this.hostShutdown();
     }
   }
 
-  private updateEmptyTimer(): void {
+  private async updateEmptyTimer(): Promise<void> {
     if (this.state !== 'READY') {
       this.emptyStartUs = null;
       return;
@@ -424,7 +469,7 @@ export class VignetteHost {
       return;
     }
     if (this.emptyGraceUs === 0) {
-      this.hostShutdown();
+      await this.hostShutdown();
       return;
     }
     if (this.emptyStartUs === null) {
@@ -432,8 +477,8 @@ export class VignetteHost {
     }
   }
 
-  /** Host-initiated teardown: broadcast Shutdown, run vignette shutdown (§3.5). */
-  private hostShutdown(): void {
+  /** Host-initiated teardown: broadcast Shutdown, then run vignette shutdown (§3.5). */
+  private async hostShutdown(): Promise<void> {
     if (this.state !== 'READY') {
       return;
     }
@@ -441,10 +486,14 @@ export class VignetteHost {
     this.loop?.stop();
     this.emptyStartUs = null;
     this.registry.route(0, encodeSystemEnvelope(SystemType.Shutdown));
+    // A graceful teardown gives the vignette a real chance to persist: await
+    // shutdown() (which may await a flush) inline, so a single whenIdle() waits
+    // for the durable write. (Contrast simFatal, which stays fire-and-forget — a
+    // faulted sim's state is untrustworthy, so we don't wait on its flush.)
     try {
-      void this.vignette?.shutdown();
+      await this.vignette?.shutdown();
     } catch {
-      /* ignore */
+      /* graceful teardown: swallow */
     }
     this.state = 'CLOSED';
   }

@@ -6,6 +6,20 @@
 // Operations may be sync or async; the host invokes them strictly serially,
 // never concurrently or reentrantly (Part I §2.2), awaiting each in turn.
 
+import type { MountedStorage } from '../storage/VignetteStorage.js';
+
+/**
+ * Host-provided capabilities handed to a vignette before `init` via
+ * {@link Vignette.attachServices}. The host owns the backend, so this works the
+ * same for TS, wasm, and native. Extensible — a logger/config/fetch may join
+ * `storage` later. `storage` is a jailed in-memory mount (synchronous); `flush`
+ * persists it to durable storage (async) — call it at your own cadence.
+ */
+export interface VignetteServices {
+  storage: MountedStorage;
+  flush(): Promise<void>;
+}
+
 /** Reason a peer left, delivered to `peerLeft` (Part I §2.1). */
 export enum PeerLeftReason {
   Left = 0,
@@ -52,6 +66,12 @@ export interface Vignette {
    * in-process factory (`create`) form, which the compiler already checks.
    */
   readonly abiVersion?: number;
+
+  /**
+   * Receive host capabilities (storage, …) once, before `init`. Optional — a
+   * vignette that needs none can omit it; `BaseVignette` implements it for you.
+   */
+  attachServices?(services: VignetteServices): void;
 
   init(initPayload: Uint8Array): void | Promise<void>;
   tick(dtUs: number, frameId: number): void | Promise<void>;

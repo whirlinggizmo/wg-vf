@@ -12,12 +12,19 @@ import { type Clock, SystemClock } from './Clock.js';
 import { VignetteHost, type PeerConnection } from './VignetteHost.js';
 import type { Manifest } from './Manifest.js';
 import type { BytePeer } from '../transports/BytePeer.js';
+import type { DurableStore } from '../storage/VignetteStorage.js';
 
 export interface SessionManagerOptions {
   /** Resolve a session key to the manifest its host uses, or null to reject the key. */
   manifestFor(key: string): Manifest | null;
   /** Shared clock for every host. Defaults to SystemClock. */
   clock?: Clock;
+  /**
+   * Durable backend for vignette storage, shared by every host. Each session's
+   * scope is keyed by its room, so a peer returning to the same room restores
+   * that room's state.
+   */
+  durableStore?: DurableStore;
   /**
    * Cap on concurrent live sessions. A connect to a *new* key beyond this is
    * refused (a connect to an existing session is always admitted, subject to the
@@ -55,7 +62,10 @@ export class SessionManager {
       if (this.maxSessions !== undefined && this.hosts.size >= this.maxSessions) {
         return null; // at capacity — refuse a new session
       }
-      host = new VignetteHost(manifest, this.clock);
+      host = new VignetteHost(manifest, this.clock, {
+        durableStore: this.options.durableStore,
+        storageKey: key, // the room is the stable storage scope
+      });
       this.hosts.set(key, host);
     }
     return host.connect(pipe);

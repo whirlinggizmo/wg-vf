@@ -34,6 +34,8 @@ export function runWorkerHost(
 ): WorkerHostHandle {
   const host = new VignetteHost(manifest, options.clock ?? new SystemClock(), {
     maxPayloadBytes: options.maxPayloadBytes,
+    durableStore: options.durableStore,
+    storageKey: options.storageKey,
   });
   host.connect(messagePortBytePeer(port));
 

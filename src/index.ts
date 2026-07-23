@@ -4,7 +4,7 @@
 export * from './envelope/index.js';
 
 // Vignette ABI (docs/architecture-part1.md §2).
-export type { Vignette, OutboxEntry, FrameView } from './vignettes/Vignette.js';
+export type { Vignette, OutboxEntry, FrameView, VignetteServices } from './vignettes/Vignette.js';
 export { PeerLeftReason } from './vignettes/Vignette.js';
 export { BaseVignette } from './vignettes/BaseVignette.js';
 export {
