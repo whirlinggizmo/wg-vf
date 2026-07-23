@@ -109,6 +109,75 @@ class MembershipRecorder extends BaseVignette {
   }
 }
 
+/** `init` parks on a gate; every op logs, so we can prove nothing runs first (ABI-01). */
+class GatedInit extends BaseVignette {
+  readonly log: string[] = [];
+  private release!: () => void;
+  private readonly gate = new Promise<void>((res) => {
+    this.release = res;
+  });
+  override async init(): Promise<void> {
+    this.log.push('init:start');
+    await this.gate;
+    this.log.push('init:done');
+  }
+  override tick(): void {
+    this.log.push('tick');
+  }
+  override fixedTick(): void {
+    this.log.push('fixed');
+  }
+  override handleMessage(): void {
+    this.log.push('msg');
+  }
+  releaseInit(): void {
+    this.release();
+  }
+}
+
+/** Faults on command, then records whether any op arrives after shutdown (ABI-02). */
+class ShutdownWatcher extends BaseVignette {
+  readonly log: string[] = [];
+  private armed = false;
+  override fixedTick(): void {
+    if (this.armed) throw new Error('sim-fatal');
+  }
+  override handleMessage(): void {
+    this.log.push('msg');
+  }
+  override shutdown(): void {
+    this.log.push('shutdown');
+  }
+  arm(): void {
+    this.armed = true;
+  }
+}
+
+/** Every op is async and yields mid-flight; a concurrency counter catches overlap (ABI-03). */
+class ReentrancyProbe extends BaseVignette {
+  inFlight = 0;
+  maxConcurrent = 0;
+  readonly order: string[] = [];
+  private async guard(tag: string): Promise<void> {
+    this.inFlight += 1;
+    this.maxConcurrent = Math.max(this.maxConcurrent, this.inFlight);
+    this.order.push(`+${tag}`);
+    await Promise.resolve(); // a genuine overlap would interleave another op here
+    await Promise.resolve();
+    this.order.push(`-${tag}`);
+    this.inFlight -= 1;
+  }
+  override peerJoined(): Promise<void> {
+    return this.guard('join');
+  }
+  override handleMessage(): Promise<void> {
+    return this.guard('msg');
+  }
+  override fixedTick(): Promise<void> {
+    return this.guard('fixed');
+  }
+}
+
 // --- scenario builder ------------------------------------------------------
 
 function buildEntry(create: () => Vignette, over: Partial<VignetteConfig> = {}): ManifestEntry {
@@ -344,6 +413,76 @@ export function hostConformanceCases(makeHost: MakeHost): ConformanceCase[] {
     assert(joinIdx >= 0 && firstMsgIdx > joinIdx, 'peerJoined(2) precedes first handleMessage(2)');
     assert(leftIdx > firstMsgIdx, 'peerLeft(2) after the message');
     assert(!rec.log.slice(leftIdx + 1).includes('msg:2'), 'no handleMessage(2) after peerLeft(2)');
+  });
+
+  // --- op discipline: init-first, none-after-shutdown, non-reentrant (§2.2) ---
+  add('ABI-01', 'no operation runs before init resolves', async () => {
+    const v = new GatedInit();
+    const { host, connect } = scenario(makeHost, () => v);
+    const p = connect();
+    p.init('sim'); // op1: init — parks on the gate
+    p.app(new Uint8Array([1])); // op2: a handleMessage queued behind the gated init
+
+    // Let the init op begin and block; nothing downstream may have run yet.
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    jsonEq(v.log, ['init:start'], 'nothing runs while init is pending — not even the queued message');
+
+    v.releaseInit();
+    await host.whenIdle();
+
+    const done = v.log.indexOf('init:done');
+    const msg = v.log.indexOf('msg');
+    assert(done >= 0, 'init resolved');
+    assert(msg > done, 'the queued handleMessage ran only after init resolved');
+  });
+
+  add('ABI-02', 'no operation is delivered after shutdown begins', async () => {
+    const v = new ShutdownWatcher();
+    const { host, clock, connect } = scenario(makeHost, () => v);
+    const p = connect();
+    p.init('sim');
+    await host.whenIdle();
+    v.arm();
+    clock.advance(STEP);
+    await host.pump(); // fixedTick throws → sim-fatal → shutdown
+    await host.whenIdle();
+    eq(host.getState(), 'CLOSED', 'shut down');
+    assert(v.log.includes('shutdown'), 'shutdown was called');
+
+    const after = v.log.length;
+    p.app(new Uint8Array([1])); // message after shutdown must not be delivered
+    await host.whenIdle();
+    eq(v.log.length, after, 'no op delivered after shutdown');
+    assert(!v.log.includes('msg'), 'handleMessage never ran after shutdown');
+  });
+
+  add('ABI-03', 'operations are strictly serialized even when they return pending promises', async () => {
+    const v = new ReentrancyProbe();
+    const { host, clock, connect } = scenario(makeHost, () => v);
+    const p1 = connect();
+    p1.init('sim');
+    await host.whenIdle();
+    const p2 = connect();
+    p2.join('sim'); // peerJoined (async)
+    p1.app(new Uint8Array([1])); // handleMessage (async)
+    p2.app(new Uint8Array([2]));
+    clock.advance(STEP * 2);
+    const a = host.pump(); // fixedTick burst (async)
+    p1.app(new Uint8Array([3]));
+    const b = host.pump();
+    await Promise.all([a, b]);
+    await host.whenIdle();
+
+    eq(v.maxConcurrent, 1, 'never more than one op in flight');
+    assert(v.order.length > 0 && v.order.length % 2 === 0, 'every op opened and closed');
+    for (let i = 0; i < v.order.length; i += 2) {
+      const open = v.order[i];
+      const close = v.order[i + 1];
+      assert(
+        open.startsWith('+') && close.startsWith('-') && open.slice(1) === close.slice(1),
+        `op ${open} ran to completion before the next began (got ${close})`,
+      );
+    }
   });
 
   // --- loop ordering & message timing (§2.3) ---

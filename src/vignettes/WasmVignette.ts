@@ -152,7 +152,14 @@ class WasmVignette implements Vignette {
     this.drainOutboxRing();
   }
 
-  /** Stage `payload` into WASM memory, call `fn(...prefix, ptr, len)`, free. */
+  /**
+   * Stage `payload` into WASM memory, call `fn(...prefix, ptr, len)`, free.
+   *
+   * PAR-04: the staging layer needs no size cap of its own. The host already
+   * rejects any inbound envelope over `maxPayloadBytes` at decode (ENV-08/25),
+   * before delivery, so an oversized payload never reaches this point; what does
+   * reach here is bounded, and a `vf_mem_alloc` that still fails is sim-fatal.
+   */
   private callWithPayload(
     fn: WasmExportFn,
     name: string,

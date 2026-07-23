@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**90 tests green; both projects typecheck; the package is git-installable. No
+**100 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -29,7 +29,10 @@ known correctness gaps.**
 - **Manifest resolution** (`Manifest.ts` + `loadVignetteModule.ts`): the host
   resolves the peer-named vignette and loads its js/wasm module.
 - **Conformance battery** (`hostConformanceCases` / `src/testing/conformance.ts`):
-  ENV/ABI/SES cases; parametrized by a host factory.
+  ENV/ABI/SES cases; parametrized by a host factory. Op discipline is explicit —
+  ABI-01 (init-first), ABI-02 (no ops after shutdown), ABI-03 (non-reentrant),
+  ABI-04/05, SES-22; PAR-03 alloc-failure has a mock test; PAR-04 is host-side
+  (ENV-25). Only the ENV-09 nightly-CI gate remains.
 - **Determinism** (DET-01..05): cross-binding (TS vs WASM/native), overload,
   transport invariance, frame-loss tolerance; T-SCRIPT, T-LOSSY, T-GOLD.
 - **Transports**: worker (`messagePortBytePeer` + `runWorkerHost`) and WebSocket;
@@ -51,11 +54,6 @@ known correctness gaps.**
 - **Perf pass** — reduce ingress/egress payload copies; reusable staging. Do the
   transport-local wins anytime (guarded by DET); defer ABI-level copy-elision
   until the contract is frozen and there's a benchmark.
-- **PAR-04** — document oversized-inbound rejection at the WASM staging layer
-  (the host already caps inbound via ENV-25).
-- **Conformance coverage gaps (remaining)** — ABI-04/05, SES-22 now have explicit
-  cases. Still implicit-only: ABI-01/02/03 (init-before-ops, no-ops-after-shutdown,
-  reentrancy — held by the op-chain) and PAR-03 (WASM staging paths / alloc-failure).
 - **Native C host** — designed in [native-host-design.md](./native-host-design.md);
   build when a no-JS-runtime need is concrete.
 - **Phase 8 dogfood** — Rest Easy as conformance consumer #4 (downstream; further

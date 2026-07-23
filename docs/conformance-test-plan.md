@@ -1,7 +1,7 @@
 # wg-vf Conformance Test Plan
 
 **Status:** Implemented — the battery is green (84 tests). · **Companion to:** Architecture Part I (Contracts).
-**Convention:** Test IDs are `AREA-NN` and reference the contract clause they verify; each maps to a test (or a tightly-scoped describe block). `MUST`-level assertions are release-blocking; `SHOULD`-level are flagged `[S]`. Still outstanding: ABI-01/02/03 (init-before-ops, no-ops-after-shutdown, reentrancy — held implicitly by the op-chain), PAR-03/04, and the ENV-09 nightly-CI gate. (ABI-04/05 and SES-22 now have explicit cases.)
+**Convention:** Test IDs are `AREA-NN` and reference the contract clause they verify; each maps to a test (or a tightly-scoped describe block). `MUST`-level assertions are release-blocking; `SHOULD`-level are flagged `[S]`. Still outstanding: the ENV-09 nightly-CI gate. (ABI-01/02/03, ABI-04/05, SES-22 now have explicit cases; PAR-03 alloc-failure is a mock test; PAR-04 is covered host-side by ENV-25 — see notes below.)
 
 ---
 
@@ -182,8 +182,8 @@ Same vignette + same T-SCRIPT ⇒ byte-identical observable behavior across host
 |---|---|
 | PAR-01 | Shared test-vector file (JSON/binary) drives `echo`-TS and `echo`-WASM directly at the binding layer (no host): identical outbox tuples per vector. |
 | PAR-02 | Same for `counter` including frame buffer bytes and `vf_frame_seq` progression. |
-| PAR-03 | WASM staging paths: both `vf_mem_alloc`/`free` and inbox-staging-window vignettes pass PAR-01 vectors; allocation failure surfaces as the binding's documented error, not memory corruption. |
-| PAR-04 | Oversized inbound payload vs staging capacity → documented rejection (host-side), vignette memory untouched. |
+| PAR-03 | WASM staging paths: both `vf_mem_alloc`/`free` and inbox-staging-window vignettes pass PAR-01 vectors; allocation failure surfaces as the binding's documented error, not memory corruption. *(Alloc-failure is asserted in `test/unit/wasm-staging.test.ts`: a null `vf_mem_alloc` for a non-empty payload throws `SimFatalError('WASM allocation failed')` — no null write.)* |
+| PAR-04 | Oversized inbound payload vs staging capacity → documented rejection (host-side), vignette memory untouched. *(Covered upstream by ENV-25/ENV-08: the host rejects over-`maxPayloadBytes` envelopes at decode, before delivery, so staging never sees one — see `WasmVignette.callWithPayload`.)* |
 | PAR-05 | `wg_vf.h` compiles clean (−Wall −Wextra, C11) for both wasm32 and host-native targets from one source; the native build passes PAR-01/02 vectors via a minimal native harness (pre-work for the future native host — cheap now, priceless later). |
 
 ---
