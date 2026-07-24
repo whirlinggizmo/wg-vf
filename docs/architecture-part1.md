@@ -2,7 +2,7 @@
 
 **Status:** Draft 0.1 · **Scope:** Chapters 1–3 (normative). Reference host implementations (TS worker host, Bun remote host, native host) are non-normative and covered in [Architecture Part II: Reference Host Scaffolding](./architecture-part2.md).
 
-wg-vf runs self-contained **Vignette** modules behind a host boundary. The app talks to a hosted vignette by exchanging wire envelopes over a byte transport (`BytePeer`); the vignette talks to the world exclusively through the contracts in this document. The framework's core promise:
+wg-vf runs self-contained **Vignette** modules behind a host boundary. The app talks to a hosted vignette by exchanging **envelopes** over a transport — carried as bytes on a wire (WebSocket, native pipe, loopback) or as a structured object over `postMessage` (worker); the envelope, not the wire form, is the protocol. The vignette talks to the world exclusively through the contracts in this document. The framework's core promise:
 
 > **An unchanged vignette behaves identically regardless of where and in what language it is hosted** — a JS module in a worker, a WASM module in a worker or a Bun/Node process, or a native library in a standalone service.
 
@@ -20,7 +20,7 @@ A rule of thumb used throughout: *if two independently written hosts could disag
 
 ### 1.1 Design goals
 
-- One envelope for all transports (worker postMessage byte path, WebSocket, WebTransport, in-process loopback, native FFI byte pipe).
+- One envelope for all transports — carried as bytes over a wire (WebSocket, WebTransport, native FFI byte pipe, loopback) or as a structured object over `postMessage` (the worker path); the envelope, not the wire form, is the protocol.
 - Carry **peer identity** in both directions: sender on host-bound messages, target on peer-bound messages.
 - Distinguish two delivery classes at the envelope level so future transports can map them to reliable-ordered vs. unreliable-unordered streams without inspecting payloads:
   - **Message channel** — reliable, ordered, drain-everything semantics (events, commands, system traffic).
@@ -209,7 +209,7 @@ The host owns a peer registry keyed by `clientId`:
 - Retired ids (post-Leave, post-grace-expiry, post-eviction) MUST NOT be reused within the session. u16 gives 65k joins per session before exhaustion, which is ample for room-scale sessions; id-exhaustion is sim-fatal.
 - The registry, not the wire, is the source of identity truth (§1.3).
 
-The host exposes `connect(pipe): PeerConnection` as its transport seam; identity is minted when the peer sends Init/Join, and the internal `PeerRegistry` binds it via `attach(clientId, pipe)` / `detach(clientId)` over the byte-pipe (`send`/`onBytes`) abstraction — one `BytePeer` per transport attachment.
+The host works in structured envelopes: its seam is `EnvelopePeer` (`send(env)` / `onEnvelope`), and byte (de)serialization is a transport concern (`byteEnvelopePeer`) that can run on any thread. It exposes `connect(bytePeer)` (wraps a raw byte transport) and `connectEnvelopes(envelopePeer)` (already-structured — framing ran elsewhere, e.g. on an IO thread). Identity is minted when the peer sends Init/Join, and the internal `PeerRegistry` binds it via `attach(clientId, pipe)` / `detach(clientId)`. See [Part II §5](./architecture-part2.md) and [transport-perf.md](./transport-perf.md).
 
 ### 3.5 Lifetime
 

@@ -29,7 +29,7 @@ v1 (removed) had a single-peer host with three concerns fused together: the tick
 |---|---|---|---|
 | Time & pacing | `nowUs()` via `performance.now`; `setTimeout` loop | `HostLoop` with injected `nowUs()` + explicit `pump()` | timer driver (real interval vs. test `pump()`) |
 | Stepping | inline accumulator in the loop | `FixedStepEngine` (determinism core) | none — identical everywhere |
-| Send path | `setSendBytes(fn)` (one sink) | `PeerRegistry` (attach/detach) | one `BytePeer` per transport attachment |
+| Send path | `setSendBytes(fn)` (one sink) | `PeerRegistry` (attach/detach) | one `EnvelopePeer` per transport attachment |
 | Provisioning | abstract `resolveInitPayload` | `Manifest` + inline resolution | manifest source (bundled object vs. file) |
 | Frame publish | *(absent)* | `HostLoop.pump` + `VignetteHost` | transport frame mapping (coalesce vs. datagram) |
 | Error class | single fatal path | inline containment (peer-fault vs sim-fatal) | none — identical everywhere |
@@ -116,23 +116,31 @@ or handed in by tests.
 
 ---
 
-## 5. `PeerRegistry` and the byte-pipe seam
+## 5. `PeerRegistry` and the envelope seam
 
-Part I §3.4 gives the host a peer set over the byte-pipe abstraction (`send` /
-`onBytes`, the `Transport`/`BytePeer` seam). As built (`src/hosts/PeerRegistry.ts`):
+The host works in **structured envelopes**; byte (de)serialization is a transport
+concern (`byteEnvelopePeer`), so it can run on any thread — including a separate
+IO thread, keeping the sim thread off the wire format. The peer set is over the
+`EnvelopePeer` seam. As built (`src/hosts/PeerRegistry.ts`, `src/transports/EnvelopePeer.ts`):
 
 ```ts
-interface BytePeer { send(bytes: Uint8Array): void; onBytes(cb: (b: Uint8Array) => void): () => void; }
+interface EnvelopePeer { send(env: Envelope, opts?): void; onEnvelope(cb: (e: Envelope) => void): () => void; }
+// byteEnvelopePeer(bytePeer, capThunk) adapts a raw BytePeer (send bytes / onBytes)
+// into an EnvelopePeer — this is where framing + wire-rejection live.
 
 class PeerRegistry {
   mint(): number;                                    // next id, 1-based; skips 0 / 0xFFFF; never reuses within session
-  attach(clientId: number, pipe: BytePeer): void;    // bind (or rebind, for reconnect)
+  attach(clientId: number, pipe: EnvelopePeer): void; // bind (or rebind, for reconnect)
   detach(clientId: number): void;                    // transport gone (leave/evict/reconnect gap)
-  route(targetId: number, bytes: Uint8Array): void;  // 0 = broadcast to attached; else unicast-or-drop
+  route(targetId: number, env: Envelope): void;      // 0 = broadcast to attached; else unicast-or-drop
   isAttached(clientId: number): boolean;
   readonly attachedCount: number;
 }
 ```
+
+`route`/`send` take an optional `{ transferable }` ownership hint — granted to a
+sole recipient (unicast, or a broadcast to exactly one peer) so a transport may
+move the payload buffer instead of copying it (perf, not semantics).
 
 - **Identity (Part I §1.3).** The host binds a minted `clientId` to a connection
   (`Conn.clientId` in `VignetteHost`); inbound App delivery uses that bound id as
@@ -149,8 +157,11 @@ class PeerRegistry {
   `attach`es the same id without a `peerLeft`/`peerJoined` cycle. Grace expiry →
   `detach` + `peerLeft(id, TimedOut)`.
 
-The host↔transport method is `VignetteHost.connect(pipe): PeerConnection`; each
-attachment is one `BytePeer`.
+The host↔transport method is `VignetteHost.connect(bytePeer)` (wraps a raw
+`BytePeer` with `byteEnvelopePeer`, so framing runs on that transport's thread) or
+`connectEnvelopes(envelopePeer)` (already-structured — framing ran elsewhere,
+e.g. on the IO thread; used by the reference server's socket-thread split). Each
+attachment is one `EnvelopePeer`. See [transport-perf.md](./transport-perf.md).
 
 ---
 

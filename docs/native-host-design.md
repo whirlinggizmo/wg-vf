@@ -54,7 +54,7 @@ serialization) — simpler than the WASM path, same memory contract.
 
 ## 3. Transport — the only real external dependency
 
-The host logic is transport-agnostic (the `BytePeer` seam). Two targets:
+The host logic is transport-agnostic (the `EnvelopePeer` seam, or a raw `BytePeer` via `connect`). Two targets:
 
 ### a. Framed TCP / Unix socket — **zero external deps**
 POSIX sockets + a 4-byte length prefix per envelope. Ideal for a backend "room

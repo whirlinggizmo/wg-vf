@@ -12,7 +12,7 @@ leave, reconnect, lifetime), manifest resolution, the reusable conformance
 battery, and the determinism suite — with live examples (simple worker/remote,
 three.js) over TS, WASM, native, WebSocket, and Worker.
 
-**137 tests green; both projects typecheck; the package is git-installable. No
+**146 tests green; both projects typecheck; the package is git-installable. No
 known correctness gaps.**
 
 ## Done (v2 migration — for history)
@@ -35,8 +35,12 @@ known correctness gaps.**
   (ENV-25). Only the ENV-09 nightly-CI gate remains.
 - **Determinism** (DET-01..05): cross-binding (TS vs WASM/native), overload,
   transport invariance, frame-loss tolerance; T-SCRIPT, T-LOSSY, T-GOLD.
-- **Transports**: worker (`messagePortBytePeer` + `runWorkerHost`) and WebSocket
-  (plus `ReconnectingWebSocketTransport`); session-keyed reference server
+- **Transports**: the host seam is `EnvelopePeer` (byte framing via
+  `byteEnvelopePeer`, so it can run off the sim thread). Worker path carries
+  structured envelopes over `postMessage` (`messagePortEnvelopePeer` +
+  `runWorkerHost`, no framing); WebSocket + `ReconnectingWebSocketTransport`;
+  the reference server decodes/encodes on the socket thread and runs the sim in a
+  worker. See docs/transport-perf.md. Session-keyed reference server
   (`examples/remote-server.ts`).
 - **Vignette storage** (`src/storage/`, [FS ABI](./vignette-fs-abi.md)): host-owned,
   jailed filesystem (`VignetteFs` — sync read/write/delete/exists/mkdir/list + async
@@ -70,11 +74,13 @@ known correctness gaps.**
   size cap, backpressure, `maxSessions` room cap, graceful shutdown — is done:
   `SessionManager.maxSessions` + `examples/remote-server.ts`, covered by SM-05.)*
 - **Perf pass** — [transport-perf.md](./transport-perf.md) maps the copies.
-  *Done:* the transport-local win — the `SendOptions.transferable` ownership hint,
-  so the worker path transfers frames zero-copy and loopback skips its defensive
-  copy (DET-guarded). *Deferred (ABI-level, benchmark-gated):* buffer pooling /
-  return-swap, SharedArrayBuffer for the wasm boundary, and eliminating the
-  envelope framing copy.
+  *Done:* the `SendOptions.transferable` ownership hint (worker transfers frames
+  zero-copy, loopback skips its defensive copy, DET-guarded); the `EnvelopePeer`
+  seam so byte framing runs off the sim thread; the reference server isolates the
+  sim in a worker with decode/encode on the socket thread; and the **worker path
+  carries structured envelopes** — no framing at all on the local path.
+  *Deferred (benchmark-gated):* buffer pooling / return-swap and SharedArrayBuffer
+  for the (unavoidable) wasm-staging copy.
 - **Native FS binding** — the [FS ABI](./vignette-fs-abi.md) `wg_vf_fs_*` imports
   for native vignettes (TS + wasm are done and parity-tested). Lands with the
   native host, which supplies the symbols (can back them with `wgutils-c/fileio`).

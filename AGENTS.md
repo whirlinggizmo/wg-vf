@@ -24,8 +24,11 @@ transports.
 
 ## Principles (don't violate)
 
-- **The envelope is the protocol.** App and sim exchange bytes over a `BytePeer`
-  pipe; the framework never interprets App/Frame payload contents.
+- **The envelope is the protocol.** App and sim exchange `Envelope`s over the
+  transport seam (`EnvelopePeer`); byte framing is a transport concern
+  (`byteEnvelopePeer`), so it can run off the sim thread (or not at all — the
+  worker path carries the envelope object over `postMessage`). The framework never
+  interprets App/Frame payload contents.
 - **Native core = C.** The glue (`src/vignettes/wasm/wg_vf.{h,c}`) and any future
   native host are C; a vignette may be *any* C-interop language (Nim is only an
   example — `examples/three`).
@@ -46,7 +49,9 @@ transports.
   `Clock`.
 - `src/vignettes/` — `Vignette`/`BaseVignette` (TS ABI); `wasm/wg_vf.{h,c}`
   (C ABI glue); `WasmVignette.ts` (host loader).
-- `src/transports/` — `BytePeer`, `messagePortBytePeer`, `WebSocketTransport`.
+- `src/transports/` — `BytePeer` (bytes) + `EnvelopePeer`/`byteEnvelopePeer` (the
+  host seam); `messagePortBytePeer` / `messagePortEnvelopePeer` (worker),
+  `WebSocketTransport`.
 - `src/testing/` — the conformance battery (`hostConformanceCases`), reference
   vignettes, `VirtualClock`, loopback/lossy/coalescing pipes, `runScript`;
   exported at `@whirlinggizmo/wg-vf/testing`.
